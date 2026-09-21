@@ -808,7 +808,7 @@ const TEMPLATE = `
   <style>${STYLES}</style>
   <ha-card>
     <div class="hwrap">
-    <div class="head" role="button" tabindex="0" aria-expanded="false">
+    <div class="head" role="button" tabindex="0" aria-expanded="false" aria-live="polite">
       <div class="tilewrap">
         <div class="tile"><ha-icon></ha-icon><div class="badge"></div></div>
       </div>
