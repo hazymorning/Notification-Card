@@ -160,7 +160,7 @@ console.log("\n# update entity");
     }),
   });
   const el2 = mount(w, { type: "x" }, hass2);
-  check("install progress", rows(el2)[0].actions, ["Installing 42\u202f%!"]);
+  check("install progress", rows(el2)[0].actions, ["Installing 42%!"]);
 }
 
 console.log("\n# configured update entity keeps its overrides");

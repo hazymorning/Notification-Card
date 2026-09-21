@@ -1,13 +1,24 @@
+<div align="center">
+
 # Notification Hub Card
 
-One card for everything Home Assistant wants to tell you: persistent
-notifications, repairs, pending updates, weather warnings, alarms, calendar
-entries and any entity you point it at. Collapsed it shows the top item, tapped it opens the
-list. When nothing is left it hides itself.
+Everything Home Assistant wants to tell you, in one card.
+
+[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5?style=flat-square)](https://hacs.xyz)
+[![Home Assistant](https://img.shields.io/badge/Home%20Assistant-Dashboard%20card-41BDF5?style=flat-square&logo=home-assistant&logoColor=white)](https://www.home-assistant.io)
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/hazymorning/Notification-Card/main/images/dark.png">
+  <img src="https://raw.githubusercontent.com/hazymorning/Notification-Card/main/images/light.png" alt="The card collapsed on a dashboard and expanded with two notifications">
+</picture>
+
+</div>
 
 ## Install
 
-HACS → three dot menu → *Custom repositories* → add
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=hazymorning&repository=Notification-Card&category=dashboard)
+
+Or in HACS: three dot menu > *Custom repositories* > add
 `https://github.com/hazymorning/Notification-Card` as type **Dashboard**, then
 install *Notification Hub Card*.
 
@@ -25,14 +36,16 @@ type: module
 
 ## Use
 
+Add a card to your dashboard, pick **Notification Hub Card**, done. In YAML:
+
 ```yaml
 type: custom:notification-hub-card
 ```
 
 > [!TIP]
-> That is already a working card. System notifications and pending updates are
-> picked up on their own, and everything below can be clicked together in the
-> visual editor instead of written by hand.
+> That is already a working card. System notifications, repairs and pending
+> updates are picked up on their own, and everything below can be clicked
+> together in the visual editor instead of written by hand.
 
 | Option | Default | |
 | --- | --- | --- |
@@ -45,7 +58,7 @@ type: custom:notification-hub-card
 | `css` | | A stylesheet for the card, see *Styling* |
 
 <details>
-<summary><b>Entities</b> — per entity options, auto detection</summary>
+<summary><b>Entities</b>: per entity options, auto detection</summary>
 
 ```yaml
 entities:
@@ -84,7 +97,7 @@ through.
 </details>
 
 <details>
-<summary><b>Audience</b> — who sees what</summary>
+<summary><b>Audience</b>: who sees what</summary>
 
 `only` lists who sees a source, `except` lists who doesn't. Keys are `system`,
 `updates`, `repairs` or an entity id.
@@ -128,8 +141,6 @@ Classes: `.head`, `.tile`, `.badge`, `.title`, `.msg`, `.ebar`, `.count`,
 
 > [!NOTE]
 > System notifications, updates and repairs are dismissed in Home Assistant
-> itself (`update.skip`, ignore the repair). Everything else is only dismissed
-> on the device you are looking at, and comes back when its content changes.
-> Repairs need an admin account, so they stay hidden for everyone else.
-
-MIT
+> itself. Everything else is only dismissed on the device you are looking at,
+> and comes back when its content changes. Repairs need an admin account, so
+> they stay hidden for everyone else.

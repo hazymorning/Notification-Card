@@ -53,7 +53,7 @@ const STRINGS = Object.freeze({
     dismiss: "Dismiss",
     install: "Install",
     installing: "Installing\u2026",
-    installing_pct: "Installing {p}\u202f%",
+    installing_pct: "Installing {p}%",
     just_now: "just now",
     item: "notification",
     items: "notifications",
@@ -94,8 +94,7 @@ const STRINGS = Object.freeze({
   },
 });
 
-/* Core notifications the card never shows. The message match is a fallback
- * for cores that create the login notification without a stable id. */
+/* Never shown. The message match covers cores without the stable id. */
 const MUTED_NOTIFICATIONS = new Set(["http-login"]);
 
 /* Generic entities with one of these states are considered inactive. */
@@ -255,9 +254,7 @@ const renderUpdate = (id, st, items, ctx) => {
   });
 };
 
-/* Security panels: only the states that want attention show up, and they
- * cannot be acknowledged away while the panel is still in them. Disarming
- * happens on the panel itself, so the row only opens more-info. */
+/* Only the states that need attention, and they stay until the panel moves on. */
 const ALARM_SEV = Object.freeze({ triggered: "crit", pending: "warn", arming: "warn" });
 
 const renderAlarm = (id, st, items, ctx) => {
@@ -277,8 +274,7 @@ const renderAlarm = (id, st, items, ctx) => {
   });
 };
 
-/* Alert entities are notifications by design. Silencing one has side effects
- * beyond this card, so it keeps the local acknowledgment instead. */
+/* alert.turn_off reaches beyond this card, so alerts keep the local ack. */
 const renderAlert = (id, st, items, ctx) => {
   if (st.state !== "on") return;
   items.push({
@@ -339,8 +335,7 @@ const RENDERERS = Object.freeze({
   generic: renderGeneric,
 });
 
-/* Repairs are the other half of what Home Assistant wants to tell you. The
- * titles live in the integration translations, the panel handles the fix. */
+/* Titles come from the integration translations, fixing happens in the panel. */
 const REPAIR_SEV = Object.freeze({ critical: "crit", error: "crit", warning: "warn" });
 
 const renderRepair = (issue, items, ctx) => {
@@ -493,8 +488,7 @@ const STYLES = `
     grid-template-rows: 0fr;
     opacity: 0;
   }
-  /* A card coming back from display: none needs a start value to grow from.
-   * The first paint is covered by no-anim, so this only runs on real changes. */
+  /* Leaving display: none needs a start value. First paint is covered by no-anim. */
   @starting-style {
     :host(:not(.gone)) {
       grid-template-rows: 0fr;
@@ -570,8 +564,7 @@ const STYLES = `
     margin-top: 2px;
     display: grid;
   }
-  /* Header and drawer trade places by growing their own grid row, so the
-   * card animates its own height without anything measuring it. */
+  /* Header and drawer trade places through their grid row, nothing measures. */
   .hwrap, .drawer {
     display: grid;
     transition: grid-template-rows 280ms var(--nhc-ease);
@@ -1780,6 +1773,6 @@ window.customCards.push({
   type: CARD,
   name: "Notification Hub Card",
   description:
-    "Live notification hub: system notifications, updates, warnings and any entity or label \u2014 no helpers needed.",
+    "System notifications, repairs, updates, warnings and any entity you add.",
   preview: true,
 });
