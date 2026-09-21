@@ -10,6 +10,7 @@ const EDITOR = CARD + "-editor";
 const DEFAULTS = Object.freeze({
   hide_when_empty: true,
   updates: true,
+  repairs: true,
   entities: [],
   label: null,
   audience: null,
@@ -18,6 +19,7 @@ const DEFAULTS = Object.freeze({
 const LABELS = Object.freeze({
   hide_when_empty: "Hide when empty",
   updates: "Show pending updates",
+  repairs: "Show repairs",
   entities: "Source entities",
   label: "Include entities by label",
   audience: "Who sees what",
@@ -33,6 +35,9 @@ const HELPERS = Object.freeze({
 const ICONS = Object.freeze({
   system: "mdi:bell",
   update: "mdi:rocket-launch",
+  repair: "mdi:wrench",
+  alarm: "mdi:shield-alert",
+  alert: "mdi:alert",
   weather: "mdi:flash",
   calendar: "mdi:calendar-month",
   recipe: "mdi:chef-hat",
@@ -48,6 +53,7 @@ const STRINGS = Object.freeze({
     dismiss: "Dismiss",
     install: "Install",
     installing: "Installing\u2026",
+    installing_pct: "Installing {p}\u202f%",
     just_now: "just now",
     item: "notification",
     items: "notifications",
@@ -57,6 +63,7 @@ const STRINGS = Object.freeze({
     update_msg: "Update {v} available",
     update_msg_plain: "Update available",
     level: "Level {l}",
+    breaks_in: "Stops working in {v}",
     dinner: "Today's dinner",
     today_at: "today at {t}",
     tomorrow_at: "tomorrow at {t}",
@@ -69,6 +76,7 @@ const STRINGS = Object.freeze({
     dismiss: "L\u00f6schen",
     install: "Installieren",
     installing: "Installiert\u2026",
+    installing_pct: "Installiert {p}\u202f%",
     just_now: "gerade eben",
     item: "Meldung",
     items: "Meldungen",
@@ -78,12 +86,17 @@ const STRINGS = Object.freeze({
     update_msg: "Update {v} verf\u00fcgbar",
     update_msg_plain: "Update verf\u00fcgbar",
     level: "Stufe {l}",
+    breaks_in: "Funktioniert ab {v} nicht mehr",
     dinner: "Heutiges Abendessen",
     today_at: "heute um {t} Uhr",
     tomorrow_at: "morgen um {t} Uhr",
     date_at: "am {d} um {t} Uhr",
   },
 });
+
+/* Core notifications the card never shows. The message match is a fallback
+ * for cores that create the login notification without a stable id. */
+const MUTED_NOTIFICATIONS = new Set(["http-login"]);
 
 /* Generic entities with one of these states are considered inactive. */
 const INACTIVE = new Set(["off", "unavailable", "unknown", "idle", "none", "0", ""]);
@@ -96,6 +109,12 @@ const parseTs = (value, fallback) => {
 };
 
 const badgeText = (n) => (n > 9 ? "9+" : String(n));
+
+const REDUCED_MOTION = window.matchMedia
+  ? window.matchMedia("(prefers-reduced-motion: reduce)")
+  : null;
+
+const motionOK = () => !(REDUCED_MOTION && REDUCED_MOTION.matches);
 
 const sevClass = (sev) => (sev === "crit" ? " crit" : sev === "warn" ? " warn" : "");
 
@@ -206,7 +225,13 @@ const renderUpdate = (id, st, items, ctx) => {
   const name =
     a.title || (a.friendly_name || id).replace(/\s*update\s*$/i, "").trim();
   const version = a.latest_version;
-  const busy = a.in_progress === true || typeof a.in_progress === "number";
+  const pct =
+    typeof a.update_percentage === "number"
+      ? a.update_percentage
+      : typeof a.in_progress === "number"
+        ? a.in_progress
+        : null;
+  const busy = a.in_progress === true || pct !== null;
   items.push({
     key: "u:" + id,
     kind: "update",
@@ -218,12 +243,53 @@ const renderUpdate = (id, st, items, ctx) => {
     dismiss: () => ctx.hass.callService("update", "skip", { entity_id: id }),
     actions: [
       busy
-        ? { label: ctx.t.installing, disabled: true }
+        ? {
+            label: pct === null ? ctx.t.installing : fill(ctx.t.installing_pct, { p: Math.round(pct) }),
+            disabled: true,
+          }
         : {
             label: ctx.t.install,
             run: () => ctx.hass.callService("update", "install", { entity_id: id }),
           },
     ],
+  });
+};
+
+/* Security panels: only the states that want attention show up, and they
+ * cannot be acknowledged away while the panel is still in them. Disarming
+ * happens on the panel itself, so the row only opens more-info. */
+const ALARM_SEV = Object.freeze({ triggered: "crit", pending: "warn", arming: "warn" });
+
+const renderAlarm = (id, st, items, ctx) => {
+  const sev = ALARM_SEV[st.state];
+  if (!sev) return;
+  const h = ctx.hass;
+  items.push({
+    key: "a:" + id,
+    kind: "alarm",
+    sev,
+    sticky: true,
+    source: id,
+    entity: id,
+    title: st.attributes.friendly_name || id,
+    message: h && h.formatEntityState ? h.formatEntityState(st) : String(st.state),
+    ts: parseTs(st.last_changed, Date.now()),
+  });
+};
+
+/* Alert entities are notifications by design. Silencing one has side effects
+ * beyond this card, so it keeps the local acknowledgment instead. */
+const renderAlert = (id, st, items, ctx) => {
+  if (st.state !== "on") return;
+  items.push({
+    key: "al:" + id,
+    kind: "alert",
+    sev: "warn",
+    source: id,
+    entity: id,
+    title: st.attributes.friendly_name || id,
+    message: st.attributes.message || "",
+    ts: parseTs(st.last_changed, Date.now()),
   });
 };
 
@@ -233,13 +299,18 @@ const renderGeneric = (id, st, items, ctx) => {
     : isUnambiguouslyActive(st.state);
   if (!active) return;
   const unit = st.attributes.unit_of_measurement;
+  const h = ctx.hass;
   items.push({
     key: "g:" + id,
     kind: "generic",
     source: id,
     entity: id,
     title: st.attributes.friendly_name || id,
-    message: unit ? st.state + " " + unit : String(st.state),
+    message: h && h.formatEntityState
+      ? h.formatEntityState(st)
+      : unit
+        ? st.state + " " + unit
+        : String(st.state),
     ts: parseTs(st.last_changed, Date.now()),
   });
 };
@@ -253,6 +324,8 @@ const detectType = (id, st) => {
   if ("recipe" in a) return "recipe";
   if (id.startsWith("calendar.")) return "calendar";
   if (id.startsWith("update.")) return "update";
+  if (id.startsWith("alarm_control_panel.")) return "alarm";
+  if (id.startsWith("alert.")) return "alert";
   return "generic";
 };
 
@@ -261,8 +334,48 @@ const RENDERERS = Object.freeze({
   recipe: renderRecipe,
   calendar: renderCalendar,
   update: renderUpdate,
+  alarm: renderAlarm,
+  alert: renderAlert,
   generic: renderGeneric,
 });
+
+/* Repairs are the other half of what Home Assistant wants to tell you. The
+ * titles live in the integration translations, the panel handles the fix. */
+const REPAIR_SEV = Object.freeze({ critical: "crit", error: "crit", warning: "warn" });
+
+const renderRepair = (issue, items, ctx) => {
+  const h = ctx.hass;
+  const slug = issue.translation_key || issue.issue_id;
+  const title =
+    (h.localize &&
+      h.localize("component." + issue.domain + ".issues." + slug + ".title", issue.translation_placeholders || {})) ||
+    slug;
+  items.push({
+    key: "i:" + issue.domain + "/" + issue.issue_id,
+    kind: "repair",
+    sev: REPAIR_SEV[issue.severity] || "warn",
+    source: "repairs",
+    title,
+    message: issue.breaks_in_ha_version ? fill(ctx.t.breaks_in, { v: issue.breaks_in_ha_version }) : "",
+    ts: parseTs(issue.created, Date.now()),
+    dismiss: () =>
+      h.callWS({
+        type: "repairs/ignore_issue",
+        domain: issue.domain,
+        issue_id: issue.issue_id,
+        ignore: true,
+      }),
+    open: () => {
+      history.pushState(null, "", "/config/repairs");
+      window.dispatchEvent(new CustomEvent("location-changed"));
+    },
+  });
+};
+
+const fireMoreInfo = (host, entityId) =>
+  host.dispatchEvent(
+    new CustomEvent("hass-more-info", { bubbles: true, composed: true, detail: { entityId } })
+  );
 
 /* HA-style tap_action subset for custom per-entry action buttons. */
 const buildTapAction = (tap, hassRef, host, fallbackEntity) => {
@@ -276,14 +389,7 @@ const buildTapAction = (tap, hassRef, host, fallbackEntity) => {
         window.dispatchEvent(new CustomEvent("location-changed"));
       };
     case "more-info":
-      return () =>
-        host.dispatchEvent(
-          new CustomEvent("hass-more-info", {
-            bubbles: true,
-            composed: true,
-            detail: { entityId: a.entity_id || fallbackEntity },
-          })
-        );
+      return () => fireMoreInfo(host, a.entity_id || fallbackEntity);
     case "perform-action":
     case "call-service": {
       const svc = a.perform_action || a.service || "";
@@ -341,30 +447,6 @@ const renderEntity = (id, st, items, ctx, src) => {
   }
 };
 
-/* styles: config key — element name -> CSS object, applied as inline styles
- * exactly like paper-buttons-row. Row-scoped targets apply to every row. */
-const STYLE_TARGETS = Object.freeze({
-  card: "ha-card",
-  header: ".head",
-  tile: ".head .tile",
-  badge: ".badge",
-  title: ".head .title",
-  message: ".msg",
-  chevron: ".chev",
-  list: ".list",
-  footer: ".foot",
-  clear: ".clear",
-  bar: ".ebar",
-  count: ".count",
-});
-
-const applyStyles = (el, styles) => {
-  if (!el || !styles) return;
-  for (const [prop, value] of Object.entries(styles)) {
-    el.style.setProperty(prop, String(value));
-  }
-};
-
 const setImage = (tile, url) => {
   let img = tile.querySelector("img");
   if (!url) {
@@ -385,39 +467,76 @@ const setImage = (tile, url) => {
 
 const STYLES = `
   *, *::before, *::after { box-sizing: border-box; }
-  :host { display: block; -webkit-tap-highlight-color: transparent; }
-  ha-card { overflow: hidden; }
+  :host {
+    --nhc-pad: var(--card-padding, 12px);
+    --nhc-gap: var(--ha-space-3, 12px);
+    --nhc-gap-s: var(--ha-space-2, 8px);
+    --nhc-radius: var(--radius-inner, 12px);
+    --nhc-radius-s: var(--radius-small, 8px);
+    --nhc-tile: var(--control-height-icon, 40px);
+    --nhc-tile-s: var(--control-height-mini, 32px);
+    --nhc-muted: var(--opacity-muted, 0.6);
+    --nhc-quiet: var(--opacity-quiet, 0.45);
+    --nhc-ease: var(--ease-standard, cubic-bezier(0.22, 1, 0.36, 1));
+    --nhc-time: var(--duration-normal, 250ms);
+    display: grid;
+    grid-template-rows: 1fr;
+    opacity: 1;
+    -webkit-tap-highlight-color: transparent;
+    transition:
+      grid-template-rows 450ms var(--nhc-ease),
+      opacity 450ms var(--nhc-ease),
+      display 450ms allow-discrete;
+  }
+  :host(.gone) {
+    display: none;
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+  /* A card coming back from display: none needs a start value to grow from.
+   * The first paint is covered by no-anim, so this only runs on real changes. */
+  @starting-style {
+    :host(:not(.gone)) {
+      grid-template-rows: 0fr;
+      opacity: 0;
+    }
+  }
+  :host(.no-anim), :host(.no-anim) * {
+    transition: none !important;
+    animation: none !important;
+  }
+  ha-card {
+    min-height: 0;
+    overflow: hidden;
+    transition: transform 400ms var(--nhc-ease);
+  }
+  ha-card:active { transform: scale(0.98); transition-duration: 120ms; }
 
   .head {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
     grid-template-areas: "htl hti hsd" "htl hsub hsd";
-    column-gap: var(--ha-space-3, 12px);
-    padding: var(--card-padding, 12px);
+    column-gap: var(--nhc-gap);
+    padding: var(--nhc-pad);
     cursor: pointer; outline: none;
-  }
-  .head:focus-visible {
-    outline: 2px solid var(--fill-strong, var(--divider-color, currentColor));
-    outline-offset: -2px;
-    border-radius: var(--radius-inner, 12px);
   }
 
   .tilewrap { grid-area: htl; align-self: center; }
   .tile {
     position: relative;
-    width: var(--control-height-icon, 40px);
-    height: var(--control-height-icon, 40px);
+    width: var(--nhc-tile);
+    height: var(--nhc-tile);
     display: flex; align-items: center; justify-content: center;
     background: var(--accent-color);
     color: var(--text-color-active, var(--primary-background-color));
-    border-radius: var(--radius-inner, 12px);
+    border-radius: var(--nhc-radius);
   }
   .tile.warn { background: var(--warning-color); }
   .tile.crit { background: var(--error-color); }
   .tile.idle {
     background: var(--card-item-background, var(--secondary-background-color));
     color: var(--primary-text-color);
-    opacity: var(--opacity-muted, 0.6);
+    opacity: var(--nhc-muted);
   }
   .tile ha-icon { --mdc-icon-size: var(--hub-tile-icon-size, var(--icon-size-s, 20px)); }
 
@@ -429,7 +548,7 @@ const STYLES = `
     display: flex; align-items: center; justify-content: center;
     background: var(--ha-card-background);
     color: var(--primary-text-color);
-    border-radius: var(--radius-small, 8px);
+    border-radius: var(--nhc-radius-s);
     box-shadow: var(--ha-card-box-shadow);
     font-size: var(--font-size-compact, 11px);
     font-weight: var(--ha-font-weight-bold, 700);
@@ -451,57 +570,76 @@ const STYLES = `
     margin-top: 2px;
     display: grid;
   }
-  ha-card.open .head { display: none; }
-  .drawer { display: none; }
-  ha-card.open .drawer { display: block; }
-  .inner { padding-bottom: var(--card-padding, 12px); }
+  /* Header and drawer trade places by growing their own grid row, so the
+   * card animates its own height without anything measuring it. */
+  .hwrap, .drawer {
+    display: grid;
+    transition: grid-template-rows 280ms var(--nhc-ease);
+  }
+  .hwrap { grid-template-rows: 1fr; }
+  .drawer { grid-template-rows: 0fr; }
+  ha-card.open .hwrap { grid-template-rows: 0fr; }
+  ha-card.open .drawer { grid-template-rows: 1fr; }
+  .head, .inner {
+    min-height: 0;
+    overflow: hidden;
+    transition: opacity 200ms var(--nhc-ease), visibility 0s 280ms;
+  }
+  .inner { padding-bottom: var(--nhc-pad); opacity: 0; visibility: hidden; }
+  ha-card.open .head { opacity: 0; visibility: hidden; }
+  ha-card.open .inner {
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 200ms 80ms var(--nhc-ease), visibility 0s;
+  }
+  ha-card:not(.open) .head { transition: opacity 200ms 80ms var(--nhc-ease), visibility 0s; }
   .ebar {
     display: flex; align-items: center;
-    gap: var(--ha-space-2, 8px);
-    padding: var(--card-padding, 12px);
+    gap: var(--nhc-gap-s);
+    padding: var(--nhc-pad);
     cursor: pointer; outline: none;
   }
-  .ebar:focus-visible {
+  .head:focus-visible, .ebar:focus-visible {
     outline: 2px solid var(--fill-strong, var(--divider-color, currentColor));
     outline-offset: -2px;
-    border-radius: var(--radius-inner, 12px);
+    border-radius: var(--nhc-radius);
   }
   .count {
     flex: 1 1 auto;
     color: var(--primary-text-color);
-    opacity: var(--opacity-muted, 0.6);
+    opacity: var(--nhc-muted);
     font-size: var(--ha-font-size-s, 12px);
     font-weight: var(--ha-font-weight-medium, 500);
   }
-  .ebar .chev { opacity: var(--opacity-muted, 0.6); }
+  .ebar .chev { opacity: var(--nhc-muted); }
   .list {
     position: relative;
     display: flex; flex-direction: column;
-    gap: var(--card-padding, 12px);
-    padding: 0 var(--card-padding, 12px);
+    gap: var(--nhc-pad);
+    padding: 0 var(--nhc-pad);
   }
   .row {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
     grid-template-areas: "rtile rtitle rmeta" "rtile rbody rbody";
     align-items: center;
-    column-gap: var(--ha-space-3, 12px);
+    column-gap: var(--nhc-gap);
     row-gap: 2px;
-    padding: var(--card-padding, 12px);
+    padding: var(--nhc-pad);
     background: var(--card-item-background, var(--secondary-background-color));
-    border-radius: var(--radius-inner, 12px);
+    border-radius: var(--nhc-radius);
   }
   .row.link { cursor: pointer; }
   .rtile {
     grid-area: rtile;
     align-self: start;
     position: relative;
-    width: var(--control-height-mini, 32px);
-    height: var(--control-height-mini, 32px);
+    width: var(--nhc-tile-s);
+    height: var(--nhc-tile-s);
     display: flex; align-items: center; justify-content: center;
     background: var(--fill-active, var(--primary-text-color));
     color: var(--text-color-active, var(--ha-card-background));
-    border-radius: var(--radius-small, 8px);
+    border-radius: var(--nhc-radius-s);
   }
   .rtile ha-icon { --mdc-icon-size: var(--icon-size-xs, 18px); display: flex; }
   .rtile.warn { background: var(--warning-color); color: var(--text-color-active, var(--primary-background-color)); }
@@ -512,7 +650,7 @@ const STYLES = `
     object-fit: cover;
     border-radius: inherit;
     opacity: 0;
-    transition: opacity var(--duration-normal, 250ms) var(--ease-standard, cubic-bezier(0.22, 1, 0.36, 1));
+    transition: opacity var(--nhc-time) var(--nhc-ease);
   }
   img.ready { opacity: 1; }
   img.ready ~ ha-icon { visibility: hidden; }
@@ -529,11 +667,11 @@ const STYLES = `
     grid-area: rmeta;
     justify-self: end;
     display: flex; align-items: center;
-    gap: var(--ha-space-2, 8px);
+    gap: var(--nhc-gap-s);
   }
   .when {
     color: var(--primary-text-color);
-    opacity: var(--opacity-quiet, 0.45);
+    opacity: var(--nhc-quiet);
     font-size: var(--font-size-compact, 11px);
     line-height: 1;
     white-space: nowrap;
@@ -546,8 +684,8 @@ const STYLES = `
     border: none;
     background: transparent;
     color: var(--primary-text-color);
-    opacity: var(--opacity-quiet, 0.45);
-    border-radius: var(--radius-small, 8px);
+    opacity: var(--nhc-quiet);
+    border-radius: var(--nhc-radius-s);
     cursor: pointer;
   }
   .x ha-icon { --mdc-icon-size: var(--icon-size-xs, 18px); display: flex; }
@@ -555,7 +693,7 @@ const STYLES = `
     grid-area: rbody;
     margin-top: 0;
     color: var(--primary-text-color);
-    opacity: var(--opacity-muted, 0.6);
+    opacity: var(--nhc-muted);
     font-size: var(--ha-font-size-s, 12px);
     line-height: var(--ha-line-height-normal, 1.3);
     overflow-wrap: anywhere;
@@ -576,16 +714,16 @@ const STYLES = `
     grid-row: 3;
     grid-column: 2 / -1;
     display: flex;
-    gap: var(--ha-space-2, 8px);
-    margin-top: var(--ha-space-2, 8px);
+    gap: var(--nhc-gap-s);
+    margin-top: var(--nhc-gap-s);
   }
   .act {
     border: none; cursor: pointer;
     height: 28px;
-    padding: 0 var(--ha-space-3, 12px);
+    padding: 0 var(--nhc-gap);
     background: var(--fill-strong, color-mix(in srgb, currentColor 10%, transparent));
     color: var(--primary-text-color);
-    border-radius: var(--radius-small, 8px);
+    border-radius: var(--nhc-radius-s);
     font: inherit;
     font-size: var(--font-size-compact, 11px);
     font-weight: var(--ha-font-weight-medium, 500);
@@ -599,7 +737,7 @@ const STYLES = `
   .msg {
     overflow: hidden;
     color: var(--primary-text-color);
-    opacity: var(--opacity-muted, 0.6);
+    opacity: var(--nhc-muted);
     font-size: var(--ha-font-size-s, 12px);
     line-height: var(--ha-line-height-normal, 1.3);
     white-space: nowrap;
@@ -609,60 +747,46 @@ const STYLES = `
   .track .t { flex: 0 0 auto; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
   .track .dup { display: none; }
   .track.scroll { max-width: none; animation: hub-scroll var(--scroll-s, 12s) linear infinite; }
-  .track.scroll .t { overflow: visible; max-width: none; padding-right: var(--ha-space-3, 12px); }
+  .track.scroll .t { overflow: visible; max-width: none; padding-right: var(--nhc-gap); }
   .track.scroll .t::after {
     content: "\\2022";
-    padding-left: var(--ha-space-3, 12px);
-    opacity: var(--opacity-quiet, 0.45);
+    padding-left: var(--nhc-gap);
+    opacity: var(--nhc-quiet);
   }
   .track.scroll .dup { display: inline; }
   @keyframes hub-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
-
-  .head .tilewrap, .head .title, .head .hside {
-    transition:
-      opacity var(--duration-normal, 250ms) var(--ease-standard, cubic-bezier(0.22, 1, 0.36, 1)),
-      transform var(--duration-normal, 250ms) var(--ease-standard, cubic-bezier(0.22, 1, 0.36, 1));
-  }
-  ha-card.no-anim, ha-card.no-anim * {
-    transition: none !important;
-    animation: none !important;
-  }
-
-
 
   .hside {
     grid-area: hsd;
     align-self: center;
     justify-self: end;
-    margin-right: var(--ha-space-2, 8px);
+    margin-right: var(--nhc-gap-s);
     display: flex; align-items: center;
-    gap: var(--ha-space-2, 8px);
+    gap: var(--nhc-gap-s);
   }
   .chev {
     flex: 0 0 auto;
     color: var(--primary-text-color);
-    opacity: var(--opacity-muted, 0.6);
+    opacity: var(--nhc-muted);
     --mdc-icon-size: var(--icon-size-m, 24px);
   }
   .chev[hidden] { display: none; }
 
-  ha-card:not(.open) .head { transition-delay: 60ms; }
-
   .foot {
-    margin: var(--card-padding, 12px) var(--card-padding, 12px) 0;
+    margin: var(--nhc-pad) var(--nhc-pad) 0;
     border-top: var(--separator, 2px solid var(--divider-color, color-mix(in srgb, currentColor 10%, transparent)));
-    padding-top: var(--ha-space-2, 8px);
+    padding-top: var(--nhc-gap-s);
     text-align: right;
   }
   .foot[hidden] { display: none; }
   .clear {
     border: none; cursor: pointer;
-    height: var(--control-height-mini, 32px);
-    padding: 0 var(--ha-space-3, 12px);
+    height: var(--nhc-tile-s);
+    padding: 0 var(--nhc-gap);
     background: transparent;
     color: var(--primary-text-color);
-    opacity: var(--opacity-muted, 0.6);
-    border-radius: var(--radius-inner, 12px);
+    opacity: var(--nhc-muted);
+    border-radius: var(--nhc-radius);
     font: inherit;
     font-size: var(--ha-font-size-s, 12px);
     font-weight: var(--ha-font-weight-medium, 500);
@@ -671,13 +795,20 @@ const STYLES = `
   @media (hover: hover) {
     .msg:hover .track.scroll { animation-play-state: paused; }
   }
+
+  @media (prefers-reduced-motion: reduce) {
+    :host, :host * {
+      transition: none !important;
+      animation: none !important;
+    }
+  }
 `;
 
 const TEMPLATE = `
   <style>${STYLES}</style>
   <ha-card>
     <div class="hwrap">
-    <div class="head" role="button" tabindex="0" aria-expanded="false">
+    <div class="head" role="button" tabindex="0" aria-expanded="false" aria-live="polite">
       <div class="tilewrap">
         <div class="tile"><ha-icon></ha-icon><div class="badge"></div></div>
       </div>
@@ -711,6 +842,7 @@ class NotificationHubCard extends HTMLElement {
     this._items = [];
     this._updateIds = [];
     this._labelIds = [];
+    this._repairs = [];
     this._watched = [];
     this._allSources = [];
     this._audience = {};
@@ -721,10 +853,10 @@ class NotificationHubCard extends HTMLElement {
     this._expanded = false;
     this._editMode = false;
     this._unsub = null;
+    this._unsubRepairs = null;
     this._clock = null;
     this._lastMsg = null;
     this._acks = this._loadAcks();
-    this._hiddenState = false;
     this._painted = false;
     this._seq = 0;
     this._setLang("en");
@@ -759,8 +891,8 @@ class NotificationHubCard extends HTMLElement {
       if (!sources.some((s) => s.entity === src.entity)) sources.push(src);
     }
     const audience = checkAudience(config.audience);
-    if (config.styles != null && (typeof config.styles !== "object" || Array.isArray(config.styles))) {
-      throw new Error(CARD + ": styles must be a map of element -> CSS properties");
+    if (config.styles != null) {
+      console.warn(CARD + ": the styles option was replaced by css and --nhc-* variables");
     }
     if (config.css != null && typeof config.css !== "string") {
       throw new Error(CARD + ": css must be a string");
@@ -774,19 +906,11 @@ class NotificationHubCard extends HTMLElement {
     this._applyCustomStyles();
     this._refreshLabelIds();
     this._refreshWatched();
+    this._refreshRepairs();
   }
 
   _applyCustomStyles() {
-    if (!this._dom) return;
-    const c = this._config;
-    this._dom.userCss.textContent = c.css || "";
-    const styles = c.styles || {};
-    for (const [name, selector] of Object.entries(STYLE_TARGETS)) {
-      if (!styles[name]) continue;
-      this.shadowRoot
-        .querySelectorAll(selector)
-        .forEach((el) => applyStyles(el, styles[name]));
-    }
+    if (this._dom) this._dom.userCss.textContent = this._config.css || "";
   }
 
   static getConfigElement() {
@@ -854,6 +978,7 @@ class NotificationHubCard extends HTMLElement {
     this._viewer = viewer;
     if (!old || registryChanged || langChanged || viewerChanged) {
       this._entitiesRef = hass.entities;
+      if (!old) this._refreshRepairs();
       this._refreshUpdateIds();
       this._refreshLabelIds();
       this._refreshWatched();
@@ -870,9 +995,7 @@ class NotificationHubCard extends HTMLElement {
 
   set editMode(v) {
     this._editMode = Boolean(v);
-    if (this._dom) {
-      this._dom.card.classList.toggle("no-anim", this._editMode);
-    }
+    this.classList.toggle("no-anim", this._editMode);
     this._recompute();
   }
 
@@ -889,9 +1012,11 @@ class NotificationHubCard extends HTMLElement {
   }
 
   disconnectedCallback() {
-    if (this._unsub) {
-      this._unsub.then((u) => u()).catch(() => {});
-      this._unsub = null;
+    for (const key of ["_unsub", "_unsubRepairs"]) {
+      if (this[key]) {
+        this[key].then((u) => u()).catch(() => {});
+        this[key] = null;
+      }
     }
     if (this._ro) this._ro.disconnect();
     this._stopClock();
@@ -907,14 +1032,26 @@ class NotificationHubCard extends HTMLElement {
   }
 
   _subscribe() {
-    if (this._unsub || !this._hass || !this._hass.connection) return;
-    this._unsub = this._hass.connection.subscribeMessage(
-      (msg) => this._onNotifications(msg),
-      { type: "persistent_notification/subscribe" }
-    );
-    this._unsub.catch(() => {
-      this._unsub = null;
-    });
+    const conn = this._hass && this._hass.connection;
+    if (!conn) return;
+    if (!this._unsub) {
+      this._unsub = conn.subscribeMessage((msg) => this._onNotifications(msg), {
+        type: "persistent_notification/subscribe",
+      });
+      this._unsub.catch(() => {
+        this._unsub = null;
+      });
+    }
+    /* Repairs are admin only, so a refused subscription is normal. */
+    if (!this._unsubRepairs && conn.subscribeEvents) {
+      this._unsubRepairs = conn.subscribeEvents(
+        () => this._refreshRepairs(),
+        "repairs_issue_registry_updated"
+      );
+      this._unsubRepairs.catch(() => {
+        this._unsubRepairs = null;
+      });
+    }
   }
 
   _onNotifications(msg) {
@@ -944,6 +1081,22 @@ class NotificationHubCard extends HTMLElement {
     this._updateIds = Object.keys(this._hass.states).filter((id) =>
       id.startsWith("update.")
     );
+  }
+
+  _refreshRepairs() {
+    const h = this._hass;
+    if (!h || !h.callWS || !this._config || !this._config.repairs) {
+      this._repairs = [];
+      return;
+    }
+    h.callWS({ type: "repairs/list_issues" })
+      .then((res) => {
+        this._repairs = ((res && res.issues) || []).filter((i) => !i.ignored);
+        this._recompute();
+      })
+      .catch(() => {
+        this._repairs = [];
+      });
   }
 
   /* Entities carrying the configured HA label (entity registry). */
@@ -994,7 +1147,7 @@ class NotificationHubCard extends HTMLElement {
     if (allowed("system")) {
       for (const [id, n] of this._persistent) {
         const message = n.message || "";
-        if (message.includes("invalid authentication")) continue;
+        if (MUTED_NOTIFICATIONS.has(id) || message.includes("invalid authentication")) continue;
         items.push({
           key: "s:" + id,
           kind: "system",
@@ -1011,25 +1164,21 @@ class NotificationHubCard extends HTMLElement {
       }
     }
 
-    if (h && c.updates && allowed("updates")) {
-      for (const id of this._updateIds) {
-        const st = h.states[id];
-        if (st) {
-          try {
-            renderUpdate(id, st, items, ctx);
-          } catch (e) {
-            console.warn(CARD + ": update renderer failed for " + id, e);
-          }
-        }
-      }
+    if (h && c.repairs && allowed("repairs")) {
+      for (const issue of this._repairs) renderRepair(issue, items, ctx);
     }
 
+    const seen = new Set();
     if (h) {
-      const seen = new Set(c.updates ? this._updateIds : []);
       for (const src of this._allSources) {
         if (seen.has(src.entity) || !allowed(src.entity)) continue;
         seen.add(src.entity);
         renderEntity(src.entity, h.states[src.entity], items, ctx, src);
+      }
+      if (c.updates && allowed("updates")) {
+        for (const id of this._updateIds) {
+          if (!seen.has(id)) renderEntity(id, h.states[id], items, ctx, null);
+        }
       }
     }
 
@@ -1041,7 +1190,7 @@ class NotificationHubCard extends HTMLElement {
     let acksDirty = false;
     for (let i = items.length - 1; i >= 0; i--) {
       const it = items[i];
-      if (it.dismiss) continue;
+      if (it.dismiss || it.sticky) continue;
       const sig = it.title + "\u0000" + it.message;
       if (this._acks[it.key] === sig) {
         items.splice(i, 1);
@@ -1089,28 +1238,20 @@ class NotificationHubCard extends HTMLElement {
       list: q(".list"),
       foot: q(".foot"),
       clear: q(".clear"),
-      inner: q(".inner"),
       ebar: q(".ebar"),
       count: q(".count"),
       userCss,
     };
     this._dom.clear.textContent = this._t.clear;
     this._applyCustomStyles();
-    this._dom.card.addEventListener("click", () => this._press(), true);
-    this._dom.head.addEventListener("click", () => this._toggle());
-    this._dom.ebar.addEventListener("click", () => this._toggle());
-    this._dom.ebar.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === " ") {
+    for (const el of [this._dom.head, this._dom.ebar]) {
+      el.addEventListener("click", () => this._toggle());
+      el.addEventListener("keydown", (e) => {
+        if (e.key !== "Enter" && e.key !== " ") return;
         e.preventDefault();
         this._toggle();
-      }
-    });
-    this._dom.head.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === " ") {
-        e.preventDefault();
-        this._toggle();
-      }
-    });
+      });
+    }
     this._dom.clear.addEventListener("click", () => this._clearAll());
     this._ro = new ResizeObserver(() => {
       const t = this._lastMsg;
@@ -1124,25 +1265,16 @@ class NotificationHubCard extends HTMLElement {
   /* No transitions on the first paint after (re)attachment, and none at all
    * while the dashboard editor is open. */
   _suppressAnim() {
-    if (!this._dom) return;
-    this._dom.card.classList.add("no-anim");
+    this.classList.add("no-anim");
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        if (!this._editMode && this._dom) {
-          this._dom.card.classList.remove("no-anim");
-        }
+        if (!this._editMode) this.classList.remove("no-anim");
       });
     });
   }
 
-  /* Material container transform: a single bounds animation on the card
-   * while the incoming view fades through. No per-item choreography here. */
   _toggle() {
     if (!this._items.length) return;
-    const card = this._dom.card;
-    const animate =
-      this._animOK() && !card.classList.contains("no-anim");
-    const prevH = animate ? card.offsetHeight : 0;
     this._expanded = !this._expanded;
     this._dom.head.setAttribute("aria-expanded", String(this._expanded));
     if (this._expanded) {
@@ -1155,36 +1287,6 @@ class NotificationHubCard extends HTMLElement {
       if (t !== null) this._setMessage(t);
     }
     this._render();
-    if (!animate) return;
-    const nextH = card.offsetHeight;
-    const EASE = NotificationHubCard._EASE;
-    const dur = this._expanded ? 300 : 220;
-    card.style.overflow = "hidden";
-    const bounds = card.animate(
-      [{ height: prevH + "px" }, { height: nextH + "px" }],
-      { duration: dur, easing: EASE }
-    );
-    bounds.onfinish = () => {
-      card.style.overflow = "";
-    };
-    const entering = this._expanded ? this._dom.inner : this._dom.head;
-    entering.animate(
-      [{ opacity: 0 }, { opacity: 0, offset: 0.3 }, { opacity: 1 }],
-      { duration: dur, easing: "linear" }
-    );
-  }
-
-  _press() {
-    const card = this._dom.card;
-    if (!this._animOK() || card.classList.contains("no-anim")) return;
-    card.animate(
-      [
-        { transform: "none", easing: "ease-out" },
-        { transform: "scale(0.98)", offset: 0.25, easing: NotificationHubCard._EASE },
-        { transform: "none" },
-      ],
-      { duration: 400, composite: "add" }
-    );
   }
 
   _startClock() {
@@ -1248,16 +1350,6 @@ class NotificationHubCard extends HTMLElement {
     }
   }
 
-  _moreInfo(entityId) {
-    this.dispatchEvent(
-      new CustomEvent("hass-more-info", {
-        bubbles: true,
-        composed: true,
-        detail: { entityId },
-      })
-    );
-  }
-
   _render() {
     if (!this._dom || !this._config) return;
     const d = this._dom;
@@ -1265,13 +1357,13 @@ class NotificationHubCard extends HTMLElement {
     const empty = items.length === 0;
 
     if (empty && this._config.hide_when_empty && !this._editMode) {
-      this._setHiddenAnimated(true);
+      this.classList.add("gone");
       this._lastMsg = null;
       this._stopClock();
       this._painted = true;
       return;
     }
-    this._setHiddenAnimated(false);
+    this.classList.remove("gone");
 
     if (empty) {
       this._expanded = false;
@@ -1310,56 +1402,17 @@ class NotificationHubCard extends HTMLElement {
   }
 
   _animOK() {
-    return this._painted && !this._editMode && this.isConnected && typeof this.animate === "function";
+    return (
+      this._painted &&
+      !this._editMode &&
+      this.isConnected &&
+      motionOK() &&
+      typeof this.animate === "function"
+    );
   }
 
   static get _EASE() {
     return "cubic-bezier(0.22, 1, 0.36, 1)";
-  }
-
-  /* Card enter/exit via WAAPI: fires the state change immediately and lets
-   * onfinish settle display, with no inline residue and no listener races. */
-  _setHiddenAnimated(hide) {
-    if (hide === this._hiddenState) return;
-    this._hiddenState = hide;
-    if (this._cardAnim) this._cardAnim.cancel();
-    if (!this._animOK()) {
-      this.style.display = hide ? "none" : "";
-      this._painted = true;
-      return;
-    }
-    const EASE = NotificationHubCard._EASE;
-    if (hide) {
-      this.style.overflow = "hidden";
-      const h = this.offsetHeight;
-      this._cardAnim = this.animate(
-        [
-          { height: h + "px", opacity: 1 },
-          { height: "0px", opacity: 0 },
-        ],
-        { duration: 450, easing: EASE }
-      );
-      this._cardAnim.onfinish = () => {
-        this.style.display = "none";
-        this.style.overflow = "";
-        this._cardAnim = null;
-      };
-    } else {
-      this.style.display = "";
-      this.style.overflow = "hidden";
-      const h = this.scrollHeight;
-      this._cardAnim = this.animate(
-        [
-          { height: "0px", opacity: 0 },
-          { height: h + "px", opacity: 1 },
-        ],
-        { duration: 450, easing: EASE }
-      );
-      this._cardAnim.onfinish = () => {
-        this.style.overflow = "";
-        this._cardAnim = null;
-      };
-    }
   }
 
   /* Keyed reconciliation with FLIP: removed rows exit as absolutely
@@ -1466,9 +1519,8 @@ class NotificationHubCard extends HTMLElement {
     when.className = "when";
     when.textContent = this._relTime(it.ts);
     meta.append(when);
-    let x = null;
     if (it.dismiss) {
-      x = document.createElement("button");
+      const x = document.createElement("button");
       x.className = "x";
       x.setAttribute("aria-label", this._t.dismiss);
       x.setAttribute("title", this._t.dismiss);
@@ -1492,7 +1544,6 @@ class NotificationHubCard extends HTMLElement {
       for (const a of it.actions) {
         const btn = document.createElement("button");
         btn.className = "act";
-        applyStyles(btn, (this._config && this._config.styles || {}).action);
         btn.textContent = a.label;
         if (a.disabled) btn.disabled = true;
         else
@@ -1513,7 +1564,7 @@ class NotificationHubCard extends HTMLElement {
       } else if (it.open) {
         it.open();
       } else if (it.entity) {
-        this._moreInfo(it.entity);
+        fireMoreInfo(this, it.entity);
       }
     });
     if (it.open || it.entity) {
@@ -1522,16 +1573,9 @@ class NotificationHubCard extends HTMLElement {
       tile.addEventListener("click", (e) => {
         e.stopPropagation();
         if (it.open) it.open();
-        else this._moreInfo(it.entity);
+        else fireMoreInfo(this, it.entity);
       });
     }
-    const cs = (this._config && this._config.styles) || {};
-    applyStyles(row, cs.row);
-    applyStyles(tile, cs.row_tile);
-    applyStyles(title, cs.row_title);
-    applyStyles(body, cs.row_message);
-    applyStyles(when, cs.time);
-    applyStyles(x, cs.dismiss);
     return row;
   }
 
@@ -1553,7 +1597,7 @@ class NotificationHubCard extends HTMLElement {
     requestAnimationFrame(() => {
       if (this._lastMsg !== text) return;
       const w = d.t1.scrollWidth;
-      if (w > d.msg.clientWidth + 2) {
+      if (motionOK() && w > d.msg.clientWidth + 2) {
         d.track.style.setProperty(
           "--scroll-s",
           Math.max(6, Math.round(w / 30)) + "s"
@@ -1604,6 +1648,7 @@ class NotificationHubCardEditor extends HTMLElement {
         : [];
     const sources = [{ key: "system", name: "System notifications", icon: ICONS.system }];
     if (c.updates !== false) sources.push({ key: "updates", name: "Updates", icon: ICONS.update });
+    if (c.repairs !== false) sources.push({ key: "repairs", name: "Repairs", icon: ICONS.repair });
     for (const entry of [...(c.entities || []), ...labelled]) {
       const src = typeof entry === "string" ? { entity: entry } : entry || {};
       if (!src.entity || sources.some((s) => s.key === src.entity)) continue;
@@ -1636,6 +1681,7 @@ class NotificationHubCardEditor extends HTMLElement {
     return [
       { name: "hide_when_empty", selector: { boolean: {} } },
       { name: "updates", selector: { boolean: {} } },
+      { name: "repairs", selector: { boolean: {} } },
       { name: "entities", selector: { entity: { multiple: true } } },
       { name: "label", selector: { label: {} } },
       {
