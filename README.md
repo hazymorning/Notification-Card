@@ -9,7 +9,7 @@ Everything Home Assistant wants to tell you, in one card.
 
 </div>
 
-![The card collapsed on a dashboard and expanded with two notifications](https://raw.githubusercontent.com/hazymorning/Notification-Card/main/images/preview.png)
+![The card collapsed on a dashboard and expanded with two notifications](https://raw.githubusercontent.com/hazymorning/Notification-Card/main/images/dark-and-light-preview.png)
 
 ## Install
 
