@@ -7,12 +7,9 @@ Everything Home Assistant wants to tell you, in one card.
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5?style=flat-square)](https://hacs.xyz)
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-Dashboard%20card-41BDF5?style=flat-square&logo=home-assistant&logoColor=white)](https://www.home-assistant.io)
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/hazymorning/Notification-Card/main/images/dark.png">
-  <img src="https://raw.githubusercontent.com/hazymorning/Notification-Card/main/images/light.png" alt="The card collapsed on a dashboard and expanded with two notifications">
-</picture>
-
 </div>
+
+![The card collapsed on a dashboard and expanded with two notifications](https://raw.githubusercontent.com/hazymorning/Notification-Card/main/images/preview.png)
 
 ## Install
 
