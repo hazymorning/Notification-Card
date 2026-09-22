@@ -3,7 +3,8 @@
   "private": true,
   "description": "Notification Card for Home Assistant",
   "scripts": {
-    "test": "node test/card.test.js"
+    "test": "node test/card.test.js",
+    "lint": "python3 scripts/text-style.py"
   },
   "devDependencies": {
     "jsdom": "^24.0.0"

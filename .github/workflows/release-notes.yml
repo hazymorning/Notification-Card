@@ -1,0 +1,25 @@
+name: Release notes
+
+# The text of a release is the most widely read text in the project, and it is written outside the repository,
+# so nothing else looks at it. This holds it to the same rules as the files and the pull requests.
+on:
+  release:
+    types: [published, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  text:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: The name and the notes
+        env:
+          NAME: ${{ github.event.release.name }}
+          NOTES: ${{ github.event.release.body }}
+        run: |
+          printf '%s' "$NAME" | python3 scripts/text-style.py --stdin 'the release name' --limit 72
+          printf '%s' "$NOTES" | python3 scripts/text-style.py --stdin 'the release notes' --limit 3000

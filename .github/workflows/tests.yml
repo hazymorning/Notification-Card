@@ -1,0 +1,41 @@
+name: Tests
+
+# Every push and every pull request: the smoke tests, and the text checks of scripts/text-style.py. Both run
+# even when the first one fails, so one run reports everything that is wrong.
+on:
+  push:
+  pull_request:
+
+# A newer push to the same branch cancels the run before it; on main every commit is checked in full.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # The whole history, because scripts/text-style.py reads the commit messages this branch adds on top of
+      # main, and a shallow checkout has neither main nor the parents of its own tip.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Node 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Card tests
+        run: npm test
+
+      - name: Text style
+        if: ${{ !cancelled() }}
+        run: npm run lint
