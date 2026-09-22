@@ -8,17 +8,15 @@ Everything Home Assistant wants to tell you, in one card.
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-Dashboard%20card-41BDF5?style=flat-square&logo=home-assistant&logoColor=white)](https://www.home-assistant.io)
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="images/dark.png">
-  <img src="images/light.png" alt="The card collapsed on a dashboard and expanded with two notifications">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/hazymorning/Notification-Card/main/images/dark.png">
+  <img src="https://raw.githubusercontent.com/hazymorning/Notification-Card/main/images/light.png" alt="The card collapsed on a dashboard and expanded with two notifications">
 </picture>
 
 </div>
 
 ## Install
 
-[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=hazymorning&repository=Notification-Card&category=dashboard)
-
-Or in HACS: three dot menu > *Custom repositories* > add
+In HACS: three dot menu > *Custom repositories* > add
 `https://github.com/hazymorning/Notification-Card` as type **Dashboard**, then
 install *Notification Card*.
 
