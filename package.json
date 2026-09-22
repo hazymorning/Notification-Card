@@ -1,7 +1,7 @@
 {
-  "name": "notification-hub-card",
+  "name": "notification-card",
   "private": true,
-  "description": "Notification Hub Card for Home Assistant",
+  "description": "Notification Card for Home Assistant",
   "scripts": {
     "test": "node test/card.test.js"
   },
