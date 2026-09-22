@@ -8,8 +8,8 @@ Everything Home Assistant wants to tell you, in one card.
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-Dashboard%20card-41BDF5?style=flat-square&logo=home-assistant&logoColor=white)](https://www.home-assistant.io)
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/hazymorning/Notification-Card/main/images/dark.png">
-  <img src="https://raw.githubusercontent.com/hazymorning/Notification-Card/main/images/light.png" alt="The card collapsed on a dashboard and expanded with two notifications">
+  <source media="(prefers-color-scheme: dark)" srcset="images/dark.png">
+  <img src="images/light.png" alt="The card collapsed on a dashboard and expanded with two notifications">
 </picture>
 
 </div>
