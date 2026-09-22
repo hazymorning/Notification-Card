@@ -1,6 +1,6 @@
 <div align="center">
 
-# Notification Hub Card
+# Notification Card
 
 Everything Home Assistant wants to tell you, in one card.
 
@@ -20,15 +20,15 @@ Everything Home Assistant wants to tell you, in one card.
 
 Or in HACS: three dot menu > *Custom repositories* > add
 `https://github.com/hazymorning/Notification-Card` as type **Dashboard**, then
-install *Notification Hub Card*.
+install *Notification Card*.
 
 <details>
 <summary>Manual install</summary>
 
-Copy `dist/notification-hub-card.js` to `config/www/` and add the resource:
+Copy `dist/notification-card.js` to `config/www/` and add the resource:
 
 ```yaml
-url: /local/notification-hub-card.js
+url: /local/notification-card.js
 type: module
 ```
 
@@ -36,10 +36,10 @@ type: module
 
 ## Use
 
-Add a card to your dashboard, pick **Notification Hub Card**, done. In YAML:
+Add a card to your dashboard, pick **Notification Card**, done. In YAML:
 
 ```yaml
-type: custom:notification-hub-card
+type: custom:notification-card
 ```
 
 > [!TIP]
@@ -121,18 +121,18 @@ are configuring.
 <details>
 <summary><b>Styling</b></summary>
 
-Sizes, shapes and timings are variables. Override them from a theme or from
-the card, and write plain CSS for everything else.
+Sizes, shapes and timings are variables. Set them in `css`, together with
+whatever else you want to change.
 
 ```yaml
 css: |
-  :host { --nhc-radius: 20px; --nhc-pad: 16px; }
+  :host { --nc-radius: 20px; --nc-pad: 16px; }
   .row { border: 1px solid var(--divider-color); }
 ```
 
-Variables: `--nhc-pad`, `--nhc-gap`, `--nhc-gap-s`, `--nhc-radius`,
-`--nhc-radius-s`, `--nhc-tile`, `--nhc-tile-s`, `--nhc-muted`, `--nhc-quiet`,
-`--nhc-ease`, `--nhc-time`.
+Variables: `--nc-pad`, `--nc-gap`, `--nc-gap-s`, `--nc-radius`,
+`--nc-radius-s`, `--nc-tile`, `--nc-tile-s`, `--nc-icon`, `--nc-muted`,
+`--nc-quiet`, `--nc-ease`, `--nc-time`.
 
 Classes: `.head`, `.tile`, `.badge`, `.title`, `.msg`, `.ebar`, `.count`,
 `.list`, `.row`, `.rtile`, `.body`, `.when`, `.x`, `.act`, `.foot`, `.clear`.

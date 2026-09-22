@@ -1,8 +1,8 @@
-/* notification-hub-card
- * Stateless notification hub for Home Assistant.
+/* notification-card
+ * Stateless notification card for Home Assistant.
  */
 
-const CARD = "notification-hub-card";
+const CARD = "notification-card";
 const EDITOR = CARD + "-editor";
 
 /* ── configuration ──────────────────────────────────────────────────── */
@@ -463,24 +463,25 @@ const setImage = (tile, url) => {
 const STYLES = `
   *, *::before, *::after { box-sizing: border-box; }
   :host {
-    --nhc-pad: var(--card-padding, 12px);
-    --nhc-gap: var(--ha-space-3, 12px);
-    --nhc-gap-s: var(--ha-space-2, 8px);
-    --nhc-radius: var(--radius-inner, 12px);
-    --nhc-radius-s: var(--radius-small, 8px);
-    --nhc-tile: var(--control-height-icon, 40px);
-    --nhc-tile-s: var(--control-height-mini, 32px);
-    --nhc-muted: var(--opacity-muted, 0.6);
-    --nhc-quiet: var(--opacity-quiet, 0.45);
-    --nhc-ease: var(--ease-standard, cubic-bezier(0.22, 1, 0.36, 1));
-    --nhc-time: var(--duration-normal, 250ms);
+    --nc-pad: var(--card-padding, 12px);
+    --nc-gap: var(--ha-space-3, 12px);
+    --nc-gap-s: var(--ha-space-2, 8px);
+    --nc-radius: var(--radius-inner, 12px);
+    --nc-radius-s: var(--radius-small, 8px);
+    --nc-tile: var(--control-height-icon, 40px);
+    --nc-tile-s: var(--control-height-mini, 32px);
+    --nc-muted: var(--opacity-muted, 0.6);
+    --nc-quiet: var(--opacity-quiet, 0.45);
+    --nc-ease: var(--ease-standard, cubic-bezier(0.22, 1, 0.36, 1));
+    --nc-time: var(--duration-normal, 250ms);
+    --nc-icon: var(--icon-size-s, 20px);
     display: grid;
     grid-template-rows: 1fr;
     opacity: 1;
     -webkit-tap-highlight-color: transparent;
     transition:
-      grid-template-rows 450ms var(--nhc-ease),
-      opacity 450ms var(--nhc-ease),
+      grid-template-rows 450ms var(--nc-ease),
+      opacity 450ms var(--nc-ease),
       display 450ms allow-discrete;
   }
   :host(.gone) {
@@ -502,7 +503,7 @@ const STYLES = `
   ha-card {
     min-height: 0;
     overflow: hidden;
-    transition: transform 400ms var(--nhc-ease);
+    transition: transform 400ms var(--nc-ease);
   }
   ha-card:active { transform: scale(0.98); transition-duration: 120ms; }
 
@@ -510,29 +511,29 @@ const STYLES = `
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
     grid-template-areas: "htl hti hsd" "htl hsub hsd";
-    column-gap: var(--nhc-gap);
-    padding: var(--nhc-pad);
+    column-gap: var(--nc-gap);
+    padding: var(--nc-pad);
     cursor: pointer; outline: none;
   }
 
   .tilewrap { grid-area: htl; align-self: center; }
   .tile {
     position: relative;
-    width: var(--nhc-tile);
-    height: var(--nhc-tile);
+    width: var(--nc-tile);
+    height: var(--nc-tile);
     display: flex; align-items: center; justify-content: center;
     background: var(--accent-color);
     color: var(--text-color-active, var(--primary-background-color));
-    border-radius: var(--nhc-radius);
+    border-radius: var(--nc-radius);
   }
   .tile.warn { background: var(--warning-color); }
   .tile.crit { background: var(--error-color); }
   .tile.idle {
     background: var(--card-item-background, var(--secondary-background-color));
     color: var(--primary-text-color);
-    opacity: var(--nhc-muted);
+    opacity: var(--nc-muted);
   }
-  .tile ha-icon { --mdc-icon-size: var(--hub-tile-icon-size, var(--icon-size-s, 20px)); }
+  .tile ha-icon { --mdc-icon-size: var(--nc-icon); }
 
   .badge {
     position: absolute;
@@ -542,7 +543,7 @@ const STYLES = `
     display: flex; align-items: center; justify-content: center;
     background: var(--ha-card-background);
     color: var(--primary-text-color);
-    border-radius: var(--nhc-radius-s);
+    border-radius: var(--nc-radius-s);
     box-shadow: var(--ha-card-box-shadow);
     font-size: var(--font-size-compact, 11px);
     font-weight: var(--ha-font-weight-bold, 700);
@@ -567,7 +568,7 @@ const STYLES = `
   /* Header and drawer trade places through their grid row, nothing measures. */
   .hwrap, .drawer {
     display: grid;
-    transition: grid-template-rows 280ms var(--nhc-ease);
+    transition: grid-template-rows 280ms var(--nc-ease);
   }
   .hwrap { grid-template-rows: 1fr; }
   .drawer { grid-template-rows: 0fr; }
@@ -576,63 +577,63 @@ const STYLES = `
   .head, .inner {
     min-height: 0;
     overflow: hidden;
-    transition: opacity 200ms var(--nhc-ease), visibility 0s 280ms;
+    transition: opacity 200ms var(--nc-ease), visibility 0s 280ms;
   }
-  .inner { padding-bottom: var(--nhc-pad); opacity: 0; visibility: hidden; }
+  .inner { padding-bottom: var(--nc-pad); opacity: 0; visibility: hidden; }
   ha-card.open .head { opacity: 0; visibility: hidden; }
   ha-card.open .inner {
     opacity: 1;
     visibility: visible;
-    transition: opacity 200ms 80ms var(--nhc-ease), visibility 0s;
+    transition: opacity 200ms 80ms var(--nc-ease), visibility 0s;
   }
-  ha-card:not(.open) .head { transition: opacity 200ms 80ms var(--nhc-ease), visibility 0s; }
+  ha-card:not(.open) .head { transition: opacity 200ms 80ms var(--nc-ease), visibility 0s; }
   .ebar {
     display: flex; align-items: center;
-    gap: var(--nhc-gap-s);
-    padding: var(--nhc-pad);
+    gap: var(--nc-gap-s);
+    padding: var(--nc-pad);
     cursor: pointer; outline: none;
   }
   .head:focus-visible, .ebar:focus-visible {
     outline: 2px solid var(--fill-strong, var(--divider-color, currentColor));
     outline-offset: -2px;
-    border-radius: var(--nhc-radius);
+    border-radius: var(--nc-radius);
   }
   .count {
     flex: 1 1 auto;
     color: var(--primary-text-color);
-    opacity: var(--nhc-muted);
+    opacity: var(--nc-muted);
     font-size: var(--ha-font-size-s, 12px);
     font-weight: var(--ha-font-weight-medium, 500);
   }
-  .ebar .chev { opacity: var(--nhc-muted); }
+  .ebar .chev { opacity: var(--nc-muted); }
   .list {
     position: relative;
     display: flex; flex-direction: column;
-    gap: var(--nhc-pad);
-    padding: 0 var(--nhc-pad);
+    gap: var(--nc-pad);
+    padding: 0 var(--nc-pad);
   }
   .row {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
     grid-template-areas: "rtile rtitle rmeta" "rtile rbody rbody";
     align-items: center;
-    column-gap: var(--nhc-gap);
+    column-gap: var(--nc-gap);
     row-gap: 2px;
-    padding: var(--nhc-pad);
+    padding: var(--nc-pad);
     background: var(--card-item-background, var(--secondary-background-color));
-    border-radius: var(--nhc-radius);
+    border-radius: var(--nc-radius);
   }
   .row.link { cursor: pointer; }
   .rtile {
     grid-area: rtile;
     align-self: start;
     position: relative;
-    width: var(--nhc-tile-s);
-    height: var(--nhc-tile-s);
+    width: var(--nc-tile-s);
+    height: var(--nc-tile-s);
     display: flex; align-items: center; justify-content: center;
     background: var(--fill-active, var(--primary-text-color));
     color: var(--text-color-active, var(--ha-card-background));
-    border-radius: var(--nhc-radius-s);
+    border-radius: var(--nc-radius-s);
   }
   .rtile ha-icon { --mdc-icon-size: var(--icon-size-xs, 18px); display: flex; }
   .rtile.warn { background: var(--warning-color); color: var(--text-color-active, var(--primary-background-color)); }
@@ -643,7 +644,7 @@ const STYLES = `
     object-fit: cover;
     border-radius: inherit;
     opacity: 0;
-    transition: opacity var(--nhc-time) var(--nhc-ease);
+    transition: opacity var(--nc-time) var(--nc-ease);
   }
   img.ready { opacity: 1; }
   img.ready ~ ha-icon { visibility: hidden; }
@@ -660,11 +661,11 @@ const STYLES = `
     grid-area: rmeta;
     justify-self: end;
     display: flex; align-items: center;
-    gap: var(--nhc-gap-s);
+    gap: var(--nc-gap-s);
   }
   .when {
     color: var(--primary-text-color);
-    opacity: var(--nhc-quiet);
+    opacity: var(--nc-quiet);
     font-size: var(--font-size-compact, 11px);
     line-height: 1;
     white-space: nowrap;
@@ -677,8 +678,8 @@ const STYLES = `
     border: none;
     background: transparent;
     color: var(--primary-text-color);
-    opacity: var(--nhc-quiet);
-    border-radius: var(--nhc-radius-s);
+    opacity: var(--nc-quiet);
+    border-radius: var(--nc-radius-s);
     cursor: pointer;
   }
   .x ha-icon { --mdc-icon-size: var(--icon-size-xs, 18px); display: flex; }
@@ -686,7 +687,7 @@ const STYLES = `
     grid-area: rbody;
     margin-top: 0;
     color: var(--primary-text-color);
-    opacity: var(--nhc-muted);
+    opacity: var(--nc-muted);
     font-size: var(--ha-font-size-s, 12px);
     line-height: var(--ha-line-height-normal, 1.3);
     overflow-wrap: anywhere;
@@ -707,16 +708,16 @@ const STYLES = `
     grid-row: 3;
     grid-column: 2 / -1;
     display: flex;
-    gap: var(--nhc-gap-s);
-    margin-top: var(--nhc-gap-s);
+    gap: var(--nc-gap-s);
+    margin-top: var(--nc-gap-s);
   }
   .act {
     border: none; cursor: pointer;
     height: 28px;
-    padding: 0 var(--nhc-gap);
+    padding: 0 var(--nc-gap);
     background: var(--fill-strong, color-mix(in srgb, currentColor 10%, transparent));
     color: var(--primary-text-color);
-    border-radius: var(--nhc-radius-s);
+    border-radius: var(--nc-radius-s);
     font: inherit;
     font-size: var(--font-size-compact, 11px);
     font-weight: var(--ha-font-weight-medium, 500);
@@ -730,7 +731,7 @@ const STYLES = `
   .msg {
     overflow: hidden;
     color: var(--primary-text-color);
-    opacity: var(--nhc-muted);
+    opacity: var(--nc-muted);
     font-size: var(--ha-font-size-s, 12px);
     line-height: var(--ha-line-height-normal, 1.3);
     white-space: nowrap;
@@ -739,47 +740,47 @@ const STYLES = `
   .track { display: inline-flex; max-width: 100%; }
   .track .t { flex: 0 0 auto; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
   .track .dup { display: none; }
-  .track.scroll { max-width: none; animation: hub-scroll var(--scroll-s, 12s) linear infinite; }
-  .track.scroll .t { overflow: visible; max-width: none; padding-right: var(--nhc-gap); }
+  .track.scroll { max-width: none; animation: nc-scroll var(--scroll-s, 12s) linear infinite; }
+  .track.scroll .t { overflow: visible; max-width: none; padding-right: var(--nc-gap); }
   .track.scroll .t::after {
     content: "\\2022";
-    padding-left: var(--nhc-gap);
-    opacity: var(--nhc-quiet);
+    padding-left: var(--nc-gap);
+    opacity: var(--nc-quiet);
   }
   .track.scroll .dup { display: inline; }
-  @keyframes hub-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+  @keyframes nc-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
 
   .hside {
     grid-area: hsd;
     align-self: center;
     justify-self: end;
-    margin-right: var(--nhc-gap-s);
+    margin-right: var(--nc-gap-s);
     display: flex; align-items: center;
-    gap: var(--nhc-gap-s);
+    gap: var(--nc-gap-s);
   }
   .chev {
     flex: 0 0 auto;
     color: var(--primary-text-color);
-    opacity: var(--nhc-muted);
+    opacity: var(--nc-muted);
     --mdc-icon-size: var(--icon-size-m, 24px);
   }
   .chev[hidden] { display: none; }
 
   .foot {
-    margin: var(--nhc-pad) var(--nhc-pad) 0;
+    margin: var(--nc-pad) var(--nc-pad) 0;
     border-top: var(--separator, 2px solid var(--divider-color, color-mix(in srgb, currentColor 10%, transparent)));
-    padding-top: var(--nhc-gap-s);
+    padding-top: var(--nc-gap-s);
     text-align: right;
   }
   .foot[hidden] { display: none; }
   .clear {
     border: none; cursor: pointer;
-    height: var(--nhc-tile-s);
-    padding: 0 var(--nhc-gap);
+    height: var(--nc-tile-s);
+    padding: 0 var(--nc-gap);
     background: transparent;
     color: var(--primary-text-color);
-    opacity: var(--nhc-muted);
-    border-radius: var(--nhc-radius);
+    opacity: var(--nc-muted);
+    border-radius: var(--nc-radius);
     font: inherit;
     font-size: var(--ha-font-size-s, 12px);
     font-weight: var(--ha-font-weight-medium, 500);
@@ -827,7 +828,7 @@ const TEMPLATE = `
 
 /* ── card ───────────────────────────────────────────────────────────── */
 
-class NotificationHubCard extends HTMLElement {
+class NotificationCard extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
@@ -885,7 +886,7 @@ class NotificationHubCard extends HTMLElement {
     }
     const audience = checkAudience(config.audience);
     if (config.styles != null) {
-      console.warn(CARD + ": the styles option was replaced by css and --nhc-* variables");
+      console.warn(CARD + ": the styles option was replaced by css and --nc-* variables");
     }
     if (config.css != null && typeof config.css !== "string") {
       throw new Error(CARD + ": css must be a string");
@@ -1304,7 +1305,7 @@ class NotificationHubCard extends HTMLElement {
 
   _loadAcks() {
     try {
-      return JSON.parse(localStorage.getItem("nhc-ack") || "{}");
+      return JSON.parse(localStorage.getItem("notification-card-ack") || "{}");
     } catch (e) {
       return {};
     }
@@ -1312,7 +1313,7 @@ class NotificationHubCard extends HTMLElement {
 
   _saveAcks() {
     try {
-      localStorage.setItem("nhc-ack", JSON.stringify(this._acks));
+      localStorage.setItem("notification-card-ack", JSON.stringify(this._acks));
     } catch (e) {
       /* private mode etc. */
     }
@@ -1452,7 +1453,7 @@ class NotificationHubCard extends HTMLElement {
     this._rowCache = next;
     listEl.replaceChildren(...els);
     if (!animate) return;
-    const EASE = NotificationHubCard._EASE;
+    const EASE = NotificationCard._EASE;
     const scale = listEl.offsetWidth / listRect.width || 1;
     for (const [key, oldRect] of before) {
       const entry = next.get(key);
@@ -1614,7 +1615,7 @@ class NotificationHubCard extends HTMLElement {
 
 /* ── editor ─────────────────────────────────────────────────────────── */
 
-class NotificationHubCardEditor extends HTMLElement {
+class NotificationCardEditor extends HTMLElement {
   setConfig(config) {
     checkAudience(config.audience);
     this._config = { ...config };
@@ -1766,12 +1767,12 @@ class NotificationHubCardEditor extends HTMLElement {
 
 /* ── registration ───────────────────────────────────────────────────── */
 
-customElements.define(CARD, NotificationHubCard);
-customElements.define(EDITOR, NotificationHubCardEditor);
+customElements.define(CARD, NotificationCard);
+customElements.define(EDITOR, NotificationCardEditor);
 window.customCards = window.customCards || [];
 window.customCards.push({
   type: CARD,
-  name: "Notification Hub Card",
+  name: "Notification Card",
   description:
     "System notifications, repairs, updates, warnings and any entity you add.",
   preview: true,

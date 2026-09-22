@@ -4,7 +4,7 @@ const fs = require("fs");
 const path = require("path");
 const { JSDOM } = require("jsdom");
 
-const SRC = process.argv[2] || path.join(__dirname, "..", "dist", "notification-hub-card.js");
+const SRC = process.argv[2] || path.join(__dirname, "..", "dist", "notification-card.js");
 
 function makeWindow() {
   const dom = new JSDOM("<!doctype html><html><body></body></html>", {
@@ -74,7 +74,7 @@ function makeHass(states = {}, opts = {}) {
 }
 
 function mount(w, config, hass) {
-  const el = w.document.createElement("notification-hub-card");
+  const el = w.document.createElement("notification-card");
   el.setConfig(config);
   w.document.body.appendChild(el);
   el.hass = hass;
@@ -273,7 +273,7 @@ console.log("\n# local ack");
 console.log("\n# editor");
 {
   const w = makeWindow();
-  const ed = w.document.createElement("notification-hub-card-editor");
+  const ed = w.document.createElement("notification-card-editor");
   ed.setConfig({ type: "x", entities: ["calendar.family"] });
   ed.hass = makeHass({ "calendar.family": st("calendar.family", "off", { friendly_name: "Family" }) });
   const form = ed.querySelector("ha-form");
