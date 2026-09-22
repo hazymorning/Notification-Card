@@ -16,9 +16,7 @@ Everything Home Assistant wants to tell you, in one card.
 
 ## Install
 
-[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=hazymorning&repository=Notification-Card&category=dashboard)
-
-Or in HACS: three dot menu > *Custom repositories* > add
+In HACS: three dot menu > *Custom repositories* > add
 `https://github.com/hazymorning/Notification-Card` as type **Dashboard**, then
 install *Notification Card*.
 
