@@ -577,16 +577,19 @@ const STYLES = `
   .head, .inner {
     min-height: 0;
     overflow: hidden;
-    transition: opacity 200ms var(--nc-ease), visibility 0s 280ms;
+    transition: opacity 200ms var(--nc-ease), padding 280ms var(--nc-ease), visibility 0s 280ms;
   }
-  .inner { padding-bottom: var(--nc-pad); opacity: 0; visibility: hidden; }
-  ha-card.open .head { opacity: 0; visibility: hidden; }
+  .inner { padding-bottom: 0; opacity: 0; visibility: hidden; }
+  ha-card.open .head { padding-block: 0; opacity: 0; visibility: hidden; }
   ha-card.open .inner {
+    padding-bottom: var(--nc-pad);
     opacity: 1;
     visibility: visible;
-    transition: opacity 200ms 80ms var(--nc-ease), visibility 0s;
+    transition: opacity 200ms 80ms var(--nc-ease), padding 280ms var(--nc-ease), visibility 0s;
   }
-  ha-card:not(.open) .head { transition: opacity 200ms 80ms var(--nc-ease), visibility 0s; }
+  ha-card:not(.open) .head {
+    transition: opacity 200ms 80ms var(--nc-ease), padding 280ms var(--nc-ease), visibility 0s;
+  }
   .ebar {
     display: flex; align-items: center;
     gap: var(--nc-gap-s);
