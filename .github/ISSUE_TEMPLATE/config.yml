@@ -1,0 +1,13 @@
+# Issues are for bugs only. Everything else has a place in Discussions, where
+# answers stay findable for the next person with the same question.
+blank_issues_enabled: false
+contact_links:
+  - name: Question or help with a setup
+    url: https://github.com/hazymorning/Notification-Card/discussions/categories/q-a
+    about: Not sure how to configure something, or whether it is a bug? Ask here, you are welcome.
+  - name: Idea or feature request
+    url: https://github.com/hazymorning/Notification-Card/discussions/categories/ideas
+    about: Something the card could do better or should learn. Ideas are collected and discussed here.
+  - name: Show your dashboard
+    url: https://github.com/hazymorning/Notification-Card/discussions/categories/show-and-tell
+    about: Share a screenshot or a config others can learn from.
