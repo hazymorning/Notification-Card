@@ -155,9 +155,9 @@ are configuring.
 <details>
 <summary><b>Layout</b>: sections, footer, languages</summary>
 
-Collapsed, the card is at least one row of a sections view high. Turn off
-*automatic height* in the layout tab and it fills the height you give it; the
-open list then scrolls inside. When it hides itself, the section closes the
+With automatic height the card is as high as its content. Turn it off in the
+layout tab and the card fills the height you give it; the open list then
+scrolls inside. When it hides itself, the section closes the
 gap. In the sticky footer of a sections view it stays within the space the
 footer allows, and the list scrolls.
 
@@ -181,7 +181,7 @@ css: |
 ```
 
 Variables: `--nc-pad`, `--nc-gap`, `--nc-gap-s`, `--nc-radius`,
-`--nc-radius-s`, `--nc-tile`, `--nc-tile-s`, `--nc-head`, `--nc-icon`,
+`--nc-radius-s`, `--nc-tile`, `--nc-tile-s`, `--nc-icon`,
 `--nc-muted`, `--nc-quiet`, `--nc-ease`, `--nc-time`, `--nc-focus`,
 `--nc-max-height`, and for the background `--nc-bg-opacity` and
 `--nc-bg-blur`. The last two also work in a theme.
