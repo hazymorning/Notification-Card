@@ -544,9 +544,8 @@ const STYLES = `
     --nc-gap-s: var(--ha-space-2, 8px);
     --nc-radius: var(--radius-inner, var(--ha-border-radius-lg, 12px));
     --nc-radius-s: var(--radius-small, var(--ha-border-radius-md, 8px));
-    --nc-tile: var(--control-height-icon, 36px);
+    --nc-tile: var(--control-height-icon, 40px);
     --nc-tile-s: var(--control-height-mini, 32px);
-    --nc-head: calc(var(--ha-section-grid-row-height, 56px) - 2 * var(--ha-card-border-width, 1px));
     --nc-muted: var(--opacity-muted, 0.6);
     --nc-quiet: var(--opacity-quiet, 0.45);
     --nc-ease: var(--ease-standard, cubic-bezier(0.22, 1, 0.36, 1));
@@ -559,7 +558,6 @@ const STYLES = `
     --nc-bg-auto: 0.22;
     display: grid;
     grid-template-rows: 1fr;
-    height: 100%;
     opacity: 1;
     -webkit-tap-highlight-color: transparent;
     transition:
@@ -590,7 +588,6 @@ const STYLES = `
   ha-card {
     display: flex;
     flex-direction: column;
-    height: 100%;
     min-height: 0;
     max-height: var(--nc-max-height, none);
     overflow: hidden;
@@ -604,9 +601,12 @@ const STYLES = `
   /* The sticky view footer of a sections dashboard caps a card at a quarter
    * of the screen; the list scrolls inside that instead of running off it. */
   :host(.docked) ha-card { max-height: var(--nc-max-height, 25dvh); }
-  /* With a fixed height from the layout tab the card fills it: the header
-   * centers in it, the open list scrolls inside it. */
-  ha-card:not(.open) .hwrap { flex: 1 1 auto; }
+  /* Only with a fixed height from the layout tab does the card fill its cell:
+   * the header centers in it, the open list scrolls inside it. With automatic
+   * height nothing stretches. ha-card itself is stretched, not sized, so a
+   * margin set in css is taken off instead of pushed out of the cell. */
+  :host(.bounded) { height: 100%; }
+  :host(.bounded) ha-card:not(.open) .hwrap { flex: 1 1 auto; }
   ha-card.has-items:not(.open):active { transform: scale(0.98); transition-duration: 120ms; }
 
   .backdrop {
@@ -637,7 +637,6 @@ const STYLES = `
     grid-template-areas: "htl hti hsd" "htl hsub hsd";
     align-content: center;
     column-gap: var(--nc-gap);
-    min-height: var(--nc-head);
     padding: var(--nc-pad);
     outline: none;
   }
@@ -708,14 +707,13 @@ const STYLES = `
   .inner { min-height: 0; }
   .head, .inner {
     overflow: hidden;
-    transition: opacity 200ms var(--nc-ease), padding 280ms var(--nc-ease),
-      min-height 280ms var(--nc-ease), visibility 0s 280ms;
+    transition: opacity 200ms var(--nc-ease), padding 280ms var(--nc-ease), visibility 0s 280ms;
   }
   .inner {
     display: flex; flex-direction: column;
     padding-bottom: 0; opacity: 0; visibility: hidden;
   }
-  ha-card.open .head { min-height: 0; padding-block: 0; opacity: 0; visibility: hidden; }
+  ha-card.open .head { padding-block: 0; opacity: 0; visibility: hidden; }
   ha-card.open .inner {
     padding-bottom: var(--nc-pad);
     opacity: 1;
@@ -723,8 +721,7 @@ const STYLES = `
     transition: opacity 200ms 80ms var(--nc-ease), padding 280ms var(--nc-ease), visibility 0s;
   }
   ha-card:not(.open) .head {
-    transition: opacity 200ms 80ms var(--nc-ease), padding 280ms var(--nc-ease),
-      min-height 280ms var(--nc-ease), visibility 0s;
+    transition: opacity 200ms 80ms var(--nc-ease), padding 280ms var(--nc-ease), visibility 0s;
   }
   .ebar {
     flex: none;
@@ -909,7 +906,7 @@ const STYLES = `
     color: var(--primary-text-color);
     opacity: var(--nc-muted);
     font-size: var(--ha-font-size-s, 12px);
-    line-height: var(--ha-line-height-condensed, 1.2);
+    line-height: var(--ha-line-height-normal, 1.3);
     white-space: nowrap;
   }
   .msg.fade { mask-image: linear-gradient(to right, transparent 0, black 8%, black 92%, transparent 100%); }
