@@ -1,5 +1,6 @@
 {
   "name": "Notification Card",
   "filename": "notification-card.js",
-  "render_readme": true
+  "render_readme": true,
+  "homeassistant": "2024.11.0"
 }

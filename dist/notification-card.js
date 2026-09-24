@@ -4,6 +4,7 @@
 
 const CARD = "notification-card";
 const EDITOR = CARD + "-editor";
+const REPO = "https://github.com/hazymorning/Notification-Card";
 
 /* ── configuration ──────────────────────────────────────────────────── */
 
@@ -16,21 +17,11 @@ const DEFAULTS = Object.freeze({
   audience: null,
 });
 
-const LABELS = Object.freeze({
-  hide_when_empty: "Hide when empty",
-  updates: "Show pending updates",
-  repairs: "Show repairs",
-  entities: "Source entities",
-  label: "Include entities by label",
-  audience: "Who sees what",
-  visible: "Visible to",
-  people: "People",
-});
+/* The order the editor writes keys in, so the YAML reads top to bottom. */
+const KEY_ORDER = ["entities", "label", "updates", "repairs", "hide_when_empty", "audience", "css"];
+const ENTITY_KEY_ORDER = ["entity", "type", "name", "icon", "image", "background", "tap_action", "actions"];
 
-const HELPERS = Object.freeze({
-  visible: "Applies outside edit mode, like Home Assistant's own card visibility.",
-  people: "Matches the user account linked to each person in Settings \u2192 People.",
-});
+const TYPES = ["auto", "calendar", "update", "alarm", "alert", "dwd", "recipe", "picture", "generic"];
 
 const ICONS = Object.freeze({
   system: "mdi:bell",
@@ -41,22 +32,26 @@ const ICONS = Object.freeze({
   weather: "mdi:flash",
   calendar: "mdi:calendar-month",
   recipe: "mdi:chef-hat",
+  picture: "mdi:image-outline",
   generic: "mdi:information-outline",
 });
 
-/* UI strings keyed by hass.locale.language (base tag); en is the fallback. */
+const typeIcon = (type) => ICONS[type === "dwd" ? "weather" : type] || ICONS.generic;
+
+/* UI strings keyed by hass.locale.language (base tag). Other languages start
+ * from en and take what Home Assistant already translates, see HA_STRINGS. */
 const STRINGS = Object.freeze({
-  en: {
+  en: Object.freeze({
     idle_title: "All quiet",
     idle_msg: "No notifications",
     clear: "Clear all",
     dismiss: "Dismiss",
     install: "Install",
-    installing: "Installing\u2026",
+    installing: "Installing…",
     installing_pct: "Installing {p}%",
     just_now: "just now",
-    item: "notification",
-    items: "notifications",
+    count_one: "1 notification",
+    count_other: "{n} notifications",
     event: "Event",
     notification: "Notification",
     update: "Update",
@@ -64,41 +59,67 @@ const STRINGS = Object.freeze({
     update_msg_plain: "Update available",
     level: "Level {l}",
     breaks_in: "Stops working in {v}",
-    dinner: "Today's dinner",
-    today_at: "today at {t}",
-    tomorrow_at: "tomorrow at {t}",
+    day_at: "{d} at {t}",
     date_at: "on {d} at {t}",
-  },
-  de: {
+    on_date: "on {d}",
+  }),
+  de: Object.freeze({
     idle_title: "Alles ruhig",
     idle_msg: "Keine Benachrichtigungen",
-    clear: "Alle l\u00f6schen",
-    dismiss: "L\u00f6schen",
+    clear: "Alle löschen",
+    dismiss: "Löschen",
     install: "Installieren",
-    installing: "Installiert\u2026",
-    installing_pct: "Installiert {p}\u202f%",
+    installing: "Installiert…",
+    installing_pct: "Installiert {p} %",
     just_now: "gerade eben",
-    item: "Meldung",
-    items: "Meldungen",
+    count_one: "1 Meldung",
+    count_other: "{n} Meldungen",
     event: "Termin",
     notification: "Benachrichtigung",
     update: "Update",
-    update_msg: "Update {v} verf\u00fcgbar",
-    update_msg_plain: "Update verf\u00fcgbar",
+    update_msg: "Update {v} verfügbar",
+    update_msg_plain: "Update verfügbar",
     level: "Stufe {l}",
     breaks_in: "Funktioniert ab {v} nicht mehr",
-    dinner: "Heutiges Abendessen",
-    today_at: "heute um {t} Uhr",
-    tomorrow_at: "morgen um {t} Uhr",
-    date_at: "am {d} um {t} Uhr",
-  },
+    day_at: "{d} um {t}",
+    date_at: "am {d} um {t}",
+    on_date: "am {d}",
+  }),
 });
+
+/* Frontend strings Home Assistant ships in every language it supports. */
+const HA_STRINGS = Object.freeze({
+  idle_title: ["ui.notification_drawer.title"],
+  idle_msg: ["ui.notification_drawer.empty"],
+  clear: ["ui.notification_drawer.dismiss_all"],
+  dismiss: ["ui.common.close"],
+  install: ["ui.dialogs.more_info_control.update.install"],
+  installing: ["ui.card.update.installing"],
+  installing_pct: ["ui.card.update.installing_with_progress", { progress: "{p}" }],
+  update: ["ui.dialogs.more_info_control.update.update"],
+});
+
+const borrowedStrings = (localize) => {
+  const t = { ...STRINGS.en, just_now: null, day_at: "{d}, {t}", date_at: "{d}, {t}", on_date: "{d}" };
+  if (typeof localize === "function") {
+    for (const [key, [id, vars]] of Object.entries(HA_STRINGS)) {
+      const text = localize(id, vars);
+      if (text) t[key] = text;
+    }
+    const title = localize("ui.notification_drawer.title");
+    if (title) t.count_one = t.count_other = title + " ({n})";
+  }
+  return Object.freeze(t);
+};
 
 /* Never shown. The message match covers cores without the stable id. */
 const MUTED_NOTIFICATIONS = new Set(["http-login"]);
 
 /* Generic entities with one of these states are considered inactive. */
 const INACTIVE = new Set(["off", "unavailable", "unknown", "idle", "none", "0", ""]);
+
+/* update.install exists only with this feature bit (UpdateEntityFeature.INSTALL). */
+const UPDATE_INSTALL = 1;
 
 /* ── helpers ────────────────────────────────────────────────────────── */
 
@@ -122,6 +143,55 @@ const fill = (template, vars) =>
 
 const attrPath = (attrs, path) =>
   path.split(".").reduce((v, k) => (v == null ? v : v[k]), attrs);
+
+const pick = (obj, keys) => {
+  for (const k of keys) {
+    if (obj[k] != null && obj[k] !== "") return obj[k];
+  }
+  return undefined;
+};
+
+const isEmpty = (v) =>
+  v == null || v === "" || v === false || (Array.isArray(v) && v.length === 0) ||
+  (typeof v === "object" && !Array.isArray(v) && Object.keys(v).length === 0);
+
+/* Where entities keep a picture. entity_picture is Home Assistant's own; the
+ * others are common on template and REST sensors and count only as a URL. */
+const PICTURE_ATTRS = ["image", "image_url", "picture", "thumbnail"];
+const URL_LIKE = /^(https?:\/\/|\/|data:image\/)/i;
+
+const findPicture = (attrs) => {
+  if (typeof attrs.entity_picture === "string" && attrs.entity_picture) return attrs.entity_picture;
+  for (const k of PICTURE_ATTRS) {
+    if (typeof attrs[k] === "string" && URL_LIKE.test(attrs[k])) return attrs[k];
+  }
+  return null;
+};
+
+/* Persistent notifications are Markdown. The card shows them as plain text
+ * and lets the first link decide where a tap goes. */
+const plainText = (md) =>
+  String(md == null ? "" : md)
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/<\/?[a-z][^>]*>/gi, "")
+    .replace(/(\*\*|__|~~|`)(.+?)\1/g, "$2")
+    .replace(/^ {0,3}(#{1,6} +|> ?|[-*+] +)/gm, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+const SAFE_LINK = /^(https?:\/\/|\/(?!\/))/i;
+
+const firstLink = (md) => {
+  const m = /\[[^\]]*\]\(([^)\s]+)[^)]*\)/.exec(String(md || ""));
+  return m && SAFE_LINK.test(m[1]) ? m[1] : null;
+};
+
+const prettySlug = (slug) => {
+  const s = String(slug).replace(/[_-]+/g, " ").trim();
+  return s.charAt(0).toUpperCase() + s.slice(1);
+};
 
 const ruleMode = (rule) => (!rule ? "everyone" : "only" in rule ? "only" : "except");
 
@@ -162,7 +232,8 @@ const isUnambiguouslyActive = (state) => {
 
 /* ── entity renderers (auto-detected) ───────────────────────────────── */
 /* Each renderer receives (id, state, items, ctx) where ctx carries hass, the
- * language dictionary t, and whether the type was forced in config. */
+ * language dictionary t, the resolved kind, whether it was forced in config,
+ * and name(st) / format(st) that go through Home Assistant's formatters. */
 
 /* DWD weather warnings (dwd_weather_warnings integration): one item per
  * warning_<x>, level 0-4 per the docs, level >= 3 (Unwetter) is critical. */
@@ -188,21 +259,42 @@ const renderDwd = (id, st, items, ctx) => {
   }
 };
 
-const renderRecipe = (id, st, items, ctx) => {
-  const recipe = st.attributes.recipe;
-  if (!recipe || !recipe.name) return;
+/* One thing worth showing with its picture: a dish from a meal plan, a book,
+ * a parcel, a film tonight. Either an attribute holds it as an object (a
+ * recipe attribute is detected on its own) or, with type: picture, the state
+ * names it. The picture itself is resolved in renderEntity like for any kind. */
+const renderPicture = (id, st, items, ctx) => {
+  const a = st.attributes;
+  const ts = parseTs(st.last_changed, Date.now());
+  const obj = a.recipe && typeof a.recipe === "object" ? a.recipe : null;
+  if (obj) {
+    const title = pick(obj, ["name", "title"]);
+    if (!title) return;
+    items.push({
+      key: "r:" + id,
+      kind: ctx.kind,
+      source: id,
+      entity: id,
+      title: String(title),
+      message: String(pick(obj, ["description", "summary"]) || ctx.name(st)),
+      image: pick(obj, ["image", "image_url", "picture", "thumbnail"]),
+      ts,
+    });
+    return;
+  }
+  if (ctx.kind === "recipe" || INACTIVE.has(String(st.state).toLowerCase())) return;
   items.push({
     key: "r:" + id,
-    kind: "recipe",
+    kind: ctx.kind,
     source: id,
     entity: id,
-    title: recipe.name,
-    message: recipe.description || ctx.t.dinner,
-    image: recipe.image,
-    ts: parseTs(st.last_changed, Date.now()),
+    title: ctx.format(st),
+    message: ctx.name(st),
+    ts,
   });
 };
 
+/* All-day events carry midnight as start_time, so they get a day, no time. */
 const renderCalendar = (id, st, items, ctx) => {
   if (st.state !== "on" || !st.attributes.message) return;
   items.push({
@@ -211,46 +303,43 @@ const renderCalendar = (id, st, items, ctx) => {
     source: id,
     entity: id,
     title: st.attributes.message,
-    message: ctx.calWhen(st.attributes.start_time),
+    message: ctx.calWhen(st.attributes.start_time, st.attributes.all_day),
     ts: parseTs(st.last_changed, Date.now()),
   });
 };
 
-/* Update entities: title attribute is the actual software name (docs), the
- * install action is update.install; in_progress reflects a running install. */
+/* Update entities: title attribute is the actual software name (docs). The
+ * install button needs the INSTALL feature, and skipping is refused while
+ * auto_update is on, so such an update falls back to the local dismiss. */
 const renderUpdate = (id, st, items, ctx) => {
   if (st.state !== "on") return;
   const a = st.attributes;
-  const name =
-    a.title || (a.friendly_name || id).replace(/\s*update\s*$/i, "").trim();
+  const t = ctx.t;
+  const name = a.title || ctx.name(st).replace(/\s*update\s*$/i, "").trim();
   const version = a.latest_version;
-  const pct =
-    typeof a.update_percentage === "number"
+  const busy = Boolean(a.in_progress);
+  const pct = !busy
+    ? null
+    : typeof a.update_percentage === "number"
       ? a.update_percentage
       : typeof a.in_progress === "number"
         ? a.in_progress
         : null;
-  const busy = a.in_progress === true || pct !== null;
+  const canInstall = (Number(a.supported_features) & UPDATE_INSTALL) === UPDATE_INSTALL;
   items.push({
     key: "u:" + id,
     kind: "update",
     source: "updates",
     entity: id,
-    title: name || ctx.t.update,
-    message: version ? fill(ctx.t.update_msg, { v: version }) : ctx.t.update_msg_plain,
+    title: name || t.update,
+    message: version ? fill(t.update_msg, { v: version }) : t.update_msg_plain,
     ts: parseTs(st.last_changed, Date.now()),
-    dismiss: () => ctx.hass.callService("update", "skip", { entity_id: id }),
-    actions: [
-      busy
-        ? {
-            label: pct === null ? ctx.t.installing : fill(ctx.t.installing_pct, { p: Math.round(pct) }),
-            disabled: true,
-          }
-        : {
-            label: ctx.t.install,
-            run: () => ctx.hass.callService("update", "install", { entity_id: id }),
-          },
-    ],
+    dismiss: a.auto_update ? undefined : () => ctx.hass.callService("update", "skip", { entity_id: id }),
+    actions: busy
+      ? [{ label: pct === null ? t.installing : fill(t.installing_pct, { p: Math.round(pct) }), disabled: true }]
+      : canInstall
+        ? [{ label: t.install, run: () => ctx.hass.callService("update", "install", { entity_id: id }) }]
+        : [],
   });
 };
 
@@ -260,7 +349,6 @@ const ALARM_SEV = Object.freeze({ triggered: "crit", pending: "warn", arming: "w
 const renderAlarm = (id, st, items, ctx) => {
   const sev = ALARM_SEV[st.state];
   if (!sev) return;
-  const h = ctx.hass;
   items.push({
     key: "a:" + id,
     kind: "alarm",
@@ -268,8 +356,8 @@ const renderAlarm = (id, st, items, ctx) => {
     sticky: true,
     source: id,
     entity: id,
-    title: st.attributes.friendly_name || id,
-    message: h && h.formatEntityState ? h.formatEntityState(st) : String(st.state),
+    title: ctx.name(st),
+    message: ctx.format(st),
     ts: parseTs(st.last_changed, Date.now()),
   });
 };
@@ -283,7 +371,7 @@ const renderAlert = (id, st, items, ctx) => {
     sev: "warn",
     source: id,
     entity: id,
-    title: st.attributes.friendly_name || id,
+    title: ctx.name(st),
     message: st.attributes.message || "",
     ts: parseTs(st.last_changed, Date.now()),
   });
@@ -294,19 +382,13 @@ const renderGeneric = (id, st, items, ctx) => {
     ? !INACTIVE.has(String(st.state).toLowerCase())
     : isUnambiguouslyActive(st.state);
   if (!active) return;
-  const unit = st.attributes.unit_of_measurement;
-  const h = ctx.hass;
   items.push({
     key: "g:" + id,
     kind: "generic",
     source: id,
     entity: id,
-    title: st.attributes.friendly_name || id,
-    message: h && h.formatEntityState
-      ? h.formatEntityState(st)
-      : unit
-        ? st.state + " " + unit
-        : String(st.state),
+    title: ctx.name(st),
+    message: ctx.format(st),
     ts: parseTs(st.last_changed, Date.now()),
   });
 };
@@ -327,7 +409,8 @@ const detectType = (id, st) => {
 
 const RENDERERS = Object.freeze({
   dwd: renderDwd,
-  recipe: renderRecipe,
+  recipe: renderPicture,
+  picture: renderPicture,
   calendar: renderCalendar,
   update: renderUpdate,
   alarm: renderAlarm,
@@ -335,16 +418,19 @@ const RENDERERS = Object.freeze({
   generic: renderGeneric,
 });
 
-/* Titles come from the integration translations, fixing happens in the panel. */
+/* Titles come from the integration translations, which Home Assistant loads
+ * on demand; _refreshRepairs asks for them. Fixing happens in the panel. */
 const REPAIR_SEV = Object.freeze({ critical: "crit", error: "crit", warning: "warn" });
 
 const renderRepair = (issue, items, ctx) => {
   const h = ctx.hass;
   const slug = issue.translation_key || issue.issue_id;
+  const key = "component." + issue.domain + ".issues." + slug + ".title";
+  const vars = issue.translation_placeholders || {};
   const title =
-    (h.localize &&
-      h.localize("component." + issue.domain + ".issues." + slug + ".title", issue.translation_placeholders || {})) ||
-    slug;
+    (ctx.issueLocalize && ctx.issueLocalize(key, vars)) ||
+    (h.localize && h.localize(key, vars)) ||
+    prettySlug(slug);
   items.push({
     key: "i:" + issue.domain + "/" + issue.issue_id,
     kind: "repair",
@@ -360,45 +446,31 @@ const renderRepair = (issue, items, ctx) => {
         issue_id: issue.issue_id,
         ignore: true,
       }),
-    open: () => {
-      history.pushState(null, "", "/config/repairs");
-      window.dispatchEvent(new CustomEvent("location-changed"));
-    },
+    open: () => fireAction(ctx.host, { tap_action: { action: "navigate", navigation_path: "/config/repairs" } }),
   });
 };
 
-const fireMoreInfo = (host, entityId) =>
-  host.dispatchEvent(
-    new CustomEvent("hass-more-info", { bubbles: true, composed: true, detail: { entityId } })
-  );
+const fire = (node, type, detail) =>
+  node.dispatchEvent(new CustomEvent(type, { bubbles: true, composed: true, detail }));
 
-/* HA-style tap_action subset for custom per-entry action buttons. */
-const buildTapAction = (tap, hassRef, host, fallbackEntity) => {
-  const a = tap || {};
-  switch (a.action) {
-    case "url":
-      return () => window.open(a.url_path, "_blank", "noopener");
-    case "navigate":
-      return () => {
-        history.pushState(null, "", a.navigation_path);
-        window.dispatchEvent(new CustomEvent("location-changed"));
-      };
-    case "more-info":
-      return () => fireMoreInfo(host, a.entity_id || fallbackEntity);
-    case "perform-action":
-    case "call-service": {
-      const svc = a.perform_action || a.service || "";
-      const [domain, service] = svc.split(".");
-      return () =>
-        hassRef().callService(domain, service, a.data || a.service_data || {}, a.target);
-    }
-    default:
-      return null;
-  }
-};
+const fireMoreInfo = (host, entityId) => fire(host, "hass-more-info", { entityId });
 
-/* One malformed entity must not blank the whole card. Per-entry icon and
- * name overrides from the source config apply to everything it produced. */
+/* Home Assistant runs the action itself, the same way as for its own cards:
+ * confirmation, navigation history, toasts, haptics, assist and so on. */
+const fireAction = (host, config) => fire(host, "hass-action", { config, action: "tap" });
+
+const buildTapAction = (tap, host, entity) =>
+  tap && tap.action && tap.action !== "none" ? () => fireAction(host, { entity, tap_action: tap }) : null;
+
+const linkAction = (host, url) => () =>
+  fireAction(host, {
+    tap_action: url.startsWith("/")
+      ? { action: "navigate", navigation_path: url }
+      : { action: "url", url_path: url },
+  });
+
+/* One malformed entity must not blank the whole card. Per-entry overrides
+ * from the source config apply to everything it produced. */
 const renderEntity = (id, st, items, ctx, src) => {
   if (!st) return;
   const forced = Boolean(src && src.type && src.type !== "auto");
@@ -407,7 +479,7 @@ const renderEntity = (id, st, items, ctx, src) => {
   if (!renderer) return;
   const before = items.length;
   try {
-    renderer(id, st, items, { ...ctx, forced });
+    renderer(id, st, items, { ...ctx, forced, kind });
   } catch (e) {
     console.warn(CARD + ": renderer failed for " + id, e);
     items.length = before;
@@ -415,29 +487,29 @@ const renderEntity = (id, st, items, ctx, src) => {
   }
   const ref = src && src.image;
   const configured = ref && (ref.includes("/") ? ref : attrPath(st.attributes, ref));
+  const backdrop = Boolean(src && src.background);
   for (let i = before; i < items.length; i++) {
-    const image = ref ? configured : items[i].image || st.attributes.entity_picture;
+    const image = ref ? configured : items[i].image || findPicture(st.attributes);
     items[i].image = typeof image === "string" && image ? ctx.hass.hassUrl(image) : null;
+    items[i].backdrop = backdrop && Boolean(items[i].image);
   }
-  if (src && src.tap_action) {
-    const openFn = buildTapAction(src.tap_action, () => ctx.hass, ctx.host, id);
-    if (openFn) {
-      for (let i = before; i < items.length; i++) items[i].open = openFn;
+  if (!src) return;
+  if (src.tap_action) {
+    const openFn = buildTapAction(src.tap_action, ctx.host, id);
+    for (let i = before; i < items.length; i++) {
+      items[i].open = openFn;
+      if (!openFn) items[i].inert = true;
     }
   }
-  if (src && (src.icon || src.name || src.actions)) {
+  if (src.icon || src.name || src.actions) {
+    const title = typeof src.name === "string" ? src.name : src.name ? ctx.name(st, src.name) : null;
+    const extra = (src.actions || [])
+      .map((ac) => ({ label: ac.label, run: buildTapAction(ac.tap_action, ctx.host, id) }))
+      .filter((ac) => ac.label && ac.run);
     for (let i = before; i < items.length; i++) {
       if (src.icon) items[i].icon = src.icon;
-      if (src.name) items[i].title = src.name;
-      if (src.actions) {
-        const extra = src.actions
-          .map((ac) => ({
-            label: ac.label,
-            run: buildTapAction(ac.tap_action, () => ctx.hass, ctx.host, id),
-          }))
-          .filter((ac) => ac.label && ac.run);
-        items[i].actions = [...(items[i].actions || []), ...extra];
-      }
+      if (title) items[i].title = title;
+      if (extra.length) items[i].actions = [...(items[i].actions || []), ...extra];
     }
   }
 };
@@ -451,6 +523,9 @@ const setImage = (tile, url) => {
   if (!img) {
     img = document.createElement("img");
     img.alt = "";
+    img.decoding = "async";
+    img.draggable = false;
+    img.referrerPolicy = "no-referrer";
     img.addEventListener("load", () => img.classList.add("ready"));
     img.addEventListener("error", () => img.classList.remove("ready"));
     tile.prepend(img);
@@ -466,15 +541,21 @@ const STYLES = `
     --nc-pad: var(--card-padding, 12px);
     --nc-gap: var(--ha-space-3, 12px);
     --nc-gap-s: var(--ha-space-2, 8px);
-    --nc-radius: var(--radius-inner, 12px);
-    --nc-radius-s: var(--radius-small, 8px);
-    --nc-tile: var(--control-height-icon, 40px);
+    --nc-radius: var(--radius-inner, var(--ha-border-radius-lg, 12px));
+    --nc-radius-s: var(--radius-small, var(--ha-border-radius-md, 8px));
+    --nc-tile: var(--control-height-icon, 36px);
     --nc-tile-s: var(--control-height-mini, 32px);
+    --nc-head: calc(var(--ha-section-grid-row-height, 56px) - 2 * var(--ha-card-border-width, 1px));
     --nc-muted: var(--opacity-muted, 0.6);
     --nc-quiet: var(--opacity-quiet, 0.45);
     --nc-ease: var(--ease-standard, cubic-bezier(0.22, 1, 0.36, 1));
-    --nc-time: var(--duration-normal, 250ms);
+    --nc-time: var(--duration-normal, var(--ha-animation-duration-normal, 250ms));
     --nc-icon: var(--icon-size-s, 20px);
+    --nc-focus: var(--fill-strong, var(--ha-color-focus, var(--primary-color)));
+    --nc-card-bg: var(--ha-card-background, var(--card-background-color, #fff));
+    --nc-row-bg: var(--card-item-background, var(--secondary-background-color));
+    --nc-hover: color-mix(in srgb, currentColor 7%, transparent);
+    --nc-bg-auto: 0.22;
     display: grid;
     grid-template-rows: 1fr;
     opacity: 1;
@@ -484,6 +565,10 @@ const STYLES = `
       opacity 450ms var(--nc-ease),
       display 450ms allow-discrete;
   }
+  :host(.dark) { --nc-bg-auto: 0.32; }
+  /* Home Assistant drops the grid cell of a card that sets hidden, so the
+   * section closes the gap. .gone plays the collapse before that. */
+  :host([hidden]) { display: none !important; }
   :host(.gone) {
     display: none;
     grid-template-rows: 0fr;
@@ -501,20 +586,56 @@ const STYLES = `
     animation: none !important;
   }
   ha-card {
+    display: flex;
+    flex-direction: column;
     min-height: 0;
+    max-height: var(--nc-max-height, none);
     overflow: hidden;
+    isolation: isolate;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    touch-action: manipulation;
     transition: transform 400ms var(--nc-ease);
   }
-  ha-card:active { transform: scale(0.98); transition-duration: 120ms; }
+  /* The sticky view footer of a sections dashboard caps a card at a quarter
+   * of the screen; the list scrolls inside that instead of running off it. */
+  :host(.docked) ha-card { max-height: var(--nc-max-height, 25dvh); }
+  ha-card.has-items:not(.open):active { transform: scale(0.98); transition-duration: 120ms; }
+
+  .backdrop {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    overflow: hidden;
+    border-radius: inherit;
+    pointer-events: none;
+  }
+  .backdrop img {
+    position: absolute;
+    top: calc(var(--nc-bg-blur, 24px) * -2);
+    left: calc(var(--nc-bg-blur, 24px) * -2);
+    width: calc(100% + var(--nc-bg-blur, 24px) * 4);
+    height: calc(100% + var(--nc-bg-blur, 24px) * 4);
+    max-width: none;
+    object-fit: cover;
+    filter: blur(var(--nc-bg-blur, 24px)) saturate(1.3);
+    opacity: 0;
+    transition: opacity 700ms var(--nc-ease);
+  }
+  .backdrop img.on { opacity: var(--nc-bg-opacity, var(--nc-bg-auto)); }
 
   .head {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
     grid-template-areas: "htl hti hsd" "htl hsub hsd";
+    align-content: center;
     column-gap: var(--nc-gap);
-    padding: var(--nc-pad);
-    cursor: pointer; outline: none;
+    min-height: var(--nc-head);
+    padding: var(--ha-space-1, 4px) var(--nc-pad);
+    outline: none;
   }
+  ha-card.has-items .head, .ebar { cursor: pointer; }
 
   .tilewrap { grid-area: htl; align-self: center; }
   .tile {
@@ -529,7 +650,7 @@ const STYLES = `
   .tile.warn { background: var(--warning-color); }
   .tile.crit { background: var(--error-color); }
   .tile.idle {
-    background: var(--card-item-background, var(--secondary-background-color));
+    background: var(--nc-row-bg);
     color: var(--primary-text-color);
     opacity: var(--nc-muted);
   }
@@ -538,30 +659,34 @@ const STYLES = `
   .badge {
     position: absolute;
     top: calc(var(--ha-space-1, 4px) * -1);
-    right: calc(var(--ha-space-1, 4px) * -1);
-    width: 20px; height: 20px;
+    inset-inline-end: calc(var(--ha-space-1, 4px) * -1);
+    min-width: 20px; height: 20px;
+    padding: 0 4px;
     display: flex; align-items: center; justify-content: center;
-    background: var(--ha-card-background);
+    background: var(--nc-card-bg);
     color: var(--primary-text-color);
     border-radius: var(--nc-radius-s);
-    box-shadow: var(--ha-card-box-shadow);
+    box-shadow: var(--ha-card-box-shadow, none);
     font-size: var(--font-size-compact, 11px);
     font-weight: var(--ha-font-weight-bold, 700);
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
   }
   .badge[hidden] { display: none; }
 
   .head .title {
     grid-area: hti;
-    align-self: center;
+    align-self: end;
     min-width: 0;
     color: var(--primary-text-color);
     font-size: var(--ha-font-size-l, 16px);
     font-weight: var(--ha-font-weight-bold, 700);
-    line-height: var(--ha-line-height-condensed, 1.1);
+    line-height: var(--ha-line-height-condensed, 1.2);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .subslot {
     grid-area: hsub;
+    align-self: start;
     margin-top: 2px;
     display: grid;
   }
@@ -570,17 +695,21 @@ const STYLES = `
     display: grid;
     transition: grid-template-rows 280ms var(--nc-ease);
   }
-  .hwrap { grid-template-rows: 1fr; }
-  .drawer { grid-template-rows: 0fr; }
+  .hwrap { flex: none; grid-template-rows: 1fr; }
+  .drawer { flex: 0 1 auto; min-height: 0; grid-template-rows: 0fr; }
   ha-card.open .hwrap { grid-template-rows: 0fr; }
   ha-card.open .drawer { grid-template-rows: 1fr; }
+  .inner { min-height: 0; }
   .head, .inner {
-    min-height: 0;
     overflow: hidden;
-    transition: opacity 200ms var(--nc-ease), padding 280ms var(--nc-ease), visibility 0s 280ms;
+    transition: opacity 200ms var(--nc-ease), padding 280ms var(--nc-ease),
+      min-height 280ms var(--nc-ease), visibility 0s 280ms;
   }
-  .inner { padding-bottom: 0; opacity: 0; visibility: hidden; }
-  ha-card.open .head { padding-block: 0; opacity: 0; visibility: hidden; }
+  .inner {
+    display: flex; flex-direction: column;
+    padding-bottom: 0; opacity: 0; visibility: hidden;
+  }
+  ha-card.open .head { min-height: 0; padding-block: 0; opacity: 0; visibility: hidden; }
   ha-card.open .inner {
     padding-bottom: var(--nc-pad);
     opacity: 1;
@@ -588,16 +717,18 @@ const STYLES = `
     transition: opacity 200ms 80ms var(--nc-ease), padding 280ms var(--nc-ease), visibility 0s;
   }
   ha-card:not(.open) .head {
-    transition: opacity 200ms 80ms var(--nc-ease), padding 280ms var(--nc-ease), visibility 0s;
+    transition: opacity 200ms 80ms var(--nc-ease), padding 280ms var(--nc-ease),
+      min-height 280ms var(--nc-ease), visibility 0s;
   }
   .ebar {
+    flex: none;
     display: flex; align-items: center;
     gap: var(--nc-gap-s);
     padding: var(--nc-pad);
-    cursor: pointer; outline: none;
+    outline: none;
   }
   .head:focus-visible, .ebar:focus-visible {
-    outline: 2px solid var(--fill-strong, var(--divider-color, currentColor));
+    outline: 2px solid var(--nc-focus);
     outline-offset: -2px;
     border-radius: var(--nc-radius);
   }
@@ -607,13 +738,21 @@ const STYLES = `
     opacity: var(--nc-muted);
     font-size: var(--ha-font-size-s, 12px);
     font-weight: var(--ha-font-weight-medium, 500);
+    font-variant-numeric: tabular-nums;
   }
-  .ebar .chev { opacity: var(--nc-muted); }
   .list {
     position: relative;
+    flex: 0 1 auto;
+    min-height: 0;
     display: flex; flex-direction: column;
     gap: var(--nc-pad);
     padding: 0 var(--nc-pad);
+  }
+  :host(.docked) .list {
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
   }
   .row {
     display: grid;
@@ -623,10 +762,12 @@ const STYLES = `
     column-gap: var(--nc-gap);
     row-gap: 2px;
     padding: var(--nc-pad);
-    background: var(--card-item-background, var(--secondary-background-color));
+    background: var(--nc-row-bg);
     border-radius: var(--nc-radius);
+    transition: box-shadow 150ms ease, background-color var(--nc-time) var(--nc-ease);
   }
-  .row.link { cursor: pointer; }
+  .row.link, .row.expandable, .row.open { cursor: pointer; }
+  :host(.has-bg) .row { background: color-mix(in srgb, var(--nc-row-bg) 72%, transparent); }
   .rtile {
     grid-area: rtile;
     align-self: start;
@@ -635,9 +776,11 @@ const STYLES = `
     height: var(--nc-tile-s);
     display: flex; align-items: center; justify-content: center;
     background: var(--fill-active, var(--primary-text-color));
-    color: var(--text-color-active, var(--ha-card-background));
+    color: var(--text-color-active, var(--nc-card-bg));
     border-radius: var(--nc-radius-s);
+    outline: none;
   }
+  .rtile[role="button"] { cursor: pointer; }
   .rtile ha-icon { --mdc-icon-size: var(--icon-size-xs, 18px); display: flex; }
   .rtile.warn { background: var(--warning-color); color: var(--text-color-active, var(--primary-background-color)); }
   .rtile.crit { background: var(--error-color); color: var(--text-color-active, var(--primary-background-color)); }
@@ -649,6 +792,7 @@ const STYLES = `
     opacity: 0;
     transition: opacity var(--nc-time) var(--nc-ease);
   }
+  img { -webkit-user-drag: none; }
   img.ready { opacity: 1; }
   img.ready ~ ha-icon { visibility: hidden; }
   .row .title {
@@ -660,9 +804,12 @@ const STYLES = `
     line-height: var(--ha-line-height-normal, 1.3);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
+  .row.open .title { white-space: normal; overflow-wrap: anywhere; text-wrap: pretty; }
   .meta {
     grid-area: rmeta;
+    align-self: start;
     justify-self: end;
+    min-height: calc(var(--ha-font-size-m, 14px) * var(--ha-line-height-normal, 1.3));
     display: flex; align-items: center;
     gap: var(--nc-gap-s);
   }
@@ -670,10 +817,18 @@ const STYLES = `
     color: var(--primary-text-color);
     opacity: var(--nc-quiet);
     font-size: var(--font-size-compact, 11px);
+    font-variant-numeric: tabular-nums;
     line-height: 1;
     white-space: nowrap;
   }
+  button {
+    -webkit-appearance: none;
+    appearance: none;
+    font: inherit;
+    touch-action: manipulation;
+  }
   .x {
+    position: relative;
     width: 28px; height: 28px;
     margin: calc((var(--icon-size-xs, 18px) - 28px) / 2);
     display: flex; align-items: center; justify-content: center;
@@ -684,7 +839,10 @@ const STYLES = `
     opacity: var(--nc-quiet);
     border-radius: var(--nc-radius-s);
     cursor: pointer;
+    transition: opacity 150ms ease, background-color 150ms ease, transform 150ms ease;
   }
+  /* A finger needs more than the 28px the eye needs. */
+  .x::before { content: ""; position: absolute; inset: -8px -4px; }
   .x ha-icon { --mdc-icon-size: var(--icon-size-xs, 18px); display: flex; }
   .row .body {
     grid-area: rbody;
@@ -694,6 +852,7 @@ const STYLES = `
     font-size: var(--ha-font-size-s, 12px);
     line-height: var(--ha-line-height-normal, 1.3);
     overflow-wrap: anywhere;
+    text-wrap: pretty;
     display: -webkit-box;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
@@ -701,16 +860,22 @@ const STYLES = `
     max-height: calc(2 * var(--ha-line-height-normal, 1.3) * 1em);
     overflow: hidden;
   }
+  /* An opened message can be copied; a tap that only ends a selection does not close it. */
   .row.open .body {
     display: block;
     -webkit-line-clamp: unset;
     line-clamp: none;
     max-height: none;
+    white-space: pre-line;
+    -webkit-user-select: text;
+    user-select: text;
+    cursor: text;
   }
   .actions {
     grid-row: 3;
     grid-column: 2 / -1;
     display: flex;
+    flex-wrap: wrap;
     gap: var(--nc-gap-s);
     margin-top: var(--nc-gap-s);
   }
@@ -721,9 +886,11 @@ const STYLES = `
     background: var(--fill-strong, color-mix(in srgb, currentColor 10%, transparent));
     color: var(--primary-text-color);
     border-radius: var(--nc-radius-s);
-    font: inherit;
     font-size: var(--font-size-compact, 11px);
     font-weight: var(--ha-font-weight-medium, 500);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    transition: box-shadow 150ms ease, transform 150ms ease;
   }
   .act[disabled] {
     cursor: default;
@@ -736,7 +903,7 @@ const STYLES = `
     color: var(--primary-text-color);
     opacity: var(--nc-muted);
     font-size: var(--ha-font-size-s, 12px);
-    line-height: var(--ha-line-height-normal, 1.3);
+    line-height: var(--ha-line-height-condensed, 1.2);
     white-space: nowrap;
   }
   .msg.fade { mask-image: linear-gradient(to right, transparent 0, black 8%, black 92%, transparent 100%); }
@@ -744,20 +911,22 @@ const STYLES = `
   .track .t { flex: 0 0 auto; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
   .track .dup { display: none; }
   .track.scroll { max-width: none; animation: nc-scroll var(--scroll-s, 12s) linear infinite; }
-  .track.scroll .t { overflow: visible; max-width: none; padding-right: var(--nc-gap); }
+  .track.scroll:dir(rtl) { animation-name: nc-scroll-rtl; }
+  .track.scroll .t { overflow: visible; max-width: none; padding-inline-end: var(--nc-gap); }
   .track.scroll .t::after {
     content: "\\2022";
-    padding-left: var(--nc-gap);
+    padding-inline-start: var(--nc-gap);
     opacity: var(--nc-quiet);
   }
   .track.scroll .dup { display: inline; }
   @keyframes nc-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+  @keyframes nc-scroll-rtl { from { transform: translateX(0); } to { transform: translateX(50%); } }
 
   .hside {
     grid-area: hsd;
     align-self: center;
     justify-self: end;
-    margin-right: var(--nc-gap-s);
+    margin-inline-end: var(--nc-gap-s);
     display: flex; align-items: center;
     gap: var(--nc-gap-s);
   }
@@ -766,14 +935,16 @@ const STYLES = `
     color: var(--primary-text-color);
     opacity: var(--nc-muted);
     --mdc-icon-size: var(--icon-size-m, 24px);
+    transition: opacity 150ms ease;
   }
   .chev[hidden] { display: none; }
 
   .foot {
+    flex: none;
     margin: var(--nc-pad) var(--nc-pad) 0;
     border-top: var(--separator, 2px solid var(--divider-color, color-mix(in srgb, currentColor 10%, transparent)));
     padding-top: var(--nc-gap-s);
-    text-align: right;
+    text-align: end;
   }
   .foot[hidden] { display: none; }
   .clear {
@@ -784,13 +955,29 @@ const STYLES = `
     color: var(--primary-text-color);
     opacity: var(--nc-muted);
     border-radius: var(--nc-radius);
-    font: inherit;
     font-size: var(--ha-font-size-s, 12px);
     font-weight: var(--ha-font-weight-medium, 500);
+    transition: opacity 150ms ease, background-color 150ms ease, transform 150ms ease;
   }
+  .x:focus-visible, .act:focus-visible, .clear:focus-visible, .rtile:focus-visible {
+    outline: 2px solid var(--nc-focus);
+    outline-offset: 2px;
+  }
+  .x:active, .clear:active { transform: scale(0.92); }
+  .act:active { transform: scale(0.96); }
 
   @media (hover: hover) {
     .msg:hover .track.scroll { animation-play-state: paused; }
+    .head:hover .chev, .ebar:hover .chev { opacity: 1; }
+    .row.link:hover, .row.expandable:hover, .row.open:hover { box-shadow: inset 0 0 0 100vmax var(--nc-hover); }
+    .x:hover, .clear:hover { opacity: 1; background-color: var(--nc-hover); }
+    .act:hover { box-shadow: inset 0 0 0 100vmax var(--nc-hover); }
+  }
+
+  /* The picture behind the card is decoration; whoever asks for less of it gets none. */
+  @media (prefers-reduced-transparency: reduce), (prefers-contrast: more), (forced-colors: active) {
+    .backdrop { display: none; }
+    :host(.has-bg) .row { background: var(--nc-row-bg); }
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -804,6 +991,7 @@ const STYLES = `
 const TEMPLATE = `
   <style>${STYLES}</style>
   <ha-card>
+    <div class="backdrop" aria-hidden="true"><img alt="" draggable="false"><img alt="" draggable="false"></div>
     <div class="hwrap">
     <div class="head" role="button" tabindex="0" aria-expanded="false" aria-live="polite">
       <div class="tilewrap">
@@ -824,7 +1012,7 @@ const TEMPLATE = `
         <ha-icon class="chev" icon="mdi:chevron-up"></ha-icon>
       </div>
       <div class="list"></div>
-      <div class="foot"><button class="clear"></button></div>
+      <div class="foot"><button class="clear" type="button"></button></div>
     </div></div>
   </ha-card>
 `;
@@ -835,6 +1023,9 @@ class NotificationCard extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
+    /* Stay attached while hidden, or the subscriptions that would bring the
+     * card back are gone (Home Assistant detaches hidden cards otherwise). */
+    this.connectedWhileHidden = true;
     this._persistent = new Map();
     this._items = [];
     this._updateIds = [];
@@ -853,6 +1044,8 @@ class NotificationCard extends HTMLElement {
     this._unsubRepairs = null;
     this._clock = null;
     this._lastMsg = null;
+    this._bgUrl = null;
+    this._hideTimer = null;
     this._acks = this._loadAcks();
     this._painted = false;
     this._seq = 0;
@@ -873,6 +1066,7 @@ class NotificationCard extends HTMLElement {
               icon: entry ? entry.icon : null,
               name: entry ? entry.name : null,
               image: entry ? entry.image : null,
+              background: entry ? entry.background : null,
               actions: entry && Array.isArray(entry.actions) ? entry.actions : null,
               tap_action: entry ? entry.tap_action : null,
             };
@@ -884,6 +1078,9 @@ class NotificationCard extends HTMLElement {
       }
       if (src.image != null && typeof src.image !== "string") {
         throw new Error(CARD + ": image must be an attribute path or URL");
+      }
+      if (src.background != null && typeof src.background !== "boolean") {
+        throw new Error(CARD + ": background must be true or false");
       }
       if (!sources.some((s) => s.entity === src.entity)) sources.push(src);
     }
@@ -915,46 +1112,83 @@ class NotificationCard extends HTMLElement {
   }
 
   static getStubConfig() {
-    return { hide_when_empty: false, updates: true };
+    return { hide_when_empty: false };
   }
 
   /* -- language --------------------------------------------------------- */
 
-  _setLang(lang) {
+  _setLang(lang, localize) {
     this._lang = lang;
-    this._t = STRINGS[String(lang).split("-")[0]] || STRINGS.en;
+    const base = String(lang).split("-")[0];
+    this._curated = Boolean(STRINGS[base]);
+    this._t = STRINGS[base] || borrowedStrings(localize);
+    this._localizeRef = localize || null;
     try {
       this._rel = new Intl.RelativeTimeFormat(lang, { numeric: "auto", style: "short" });
     } catch (e) {
       this._rel = new Intl.RelativeTimeFormat("en", { numeric: "auto", style: "short" });
     }
+    this._abs = null;
     if (this._dom) this._dom.clear.textContent = this._t.clear;
+  }
+
+  /* 12 or 24 hours and the time zone follow the user's profile in Home Assistant. */
+  _clockOpts() {
+    const h = this._hass;
+    const l = (h && h.locale) || {};
+    const o = {};
+    if (l.time_format === "12") o.hour12 = true;
+    else if (l.time_format === "24") o.hour12 = false;
+    else if (l.time_format === "system") {
+      const sys = new Intl.DateTimeFormat(undefined, { hour: "numeric" }).resolvedOptions().hour12;
+      if (sys !== undefined) o.hour12 = sys;
+    }
+    if (l.time_zone === "server" && h.config && h.config.time_zone) o.timeZone = h.config.time_zone;
+    return o;
   }
 
   _relTime(ts) {
     const s = Math.round((ts - Date.now()) / 1000);
     const abs = Math.abs(s);
-    if (abs < 60) return this._t.just_now;
+    if (abs < 60) return this._t.just_now || this._rel.format(0, "second");
     if (abs < 3600) return this._rel.format(Math.round(s / 60), "minute");
     if (abs < 86400) return this._rel.format(Math.round(s / 3600), "hour");
     return this._rel.format(Math.round(s / 86400), "day");
   }
 
-  _calWhen(start) {
+  _absTime(ts) {
+    if (!this._abs) {
+      try {
+        this._abs = new Intl.DateTimeFormat(this._lang, { dateStyle: "medium", timeStyle: "short", ...this._clockOpts() });
+      } catch (e) {
+        this._abs = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
+      }
+    }
+    return this._abs.format(ts);
+  }
+
+  _calWhen(start, allDay) {
     const t = this._t;
     if (!start) return t.event;
     const d = new Date(String(start).replace(" ", "T"));
     if (isNaN(d)) return t.event;
-    const time = d.toLocaleTimeString(this._lang, { hour: "2-digit", minute: "2-digit" });
     const day = new Date(d);
     day.setHours(0, 0, 0, 0);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const diff = Math.round((day - today) / 86400000);
-    if (diff === 0) return fill(t.today_at, { t: time });
-    if (diff === 1) return fill(t.tomorrow_at, { t: time });
-    const date = d.toLocaleDateString(this._lang, { day: "2-digit", month: "2-digit" });
-    return fill(t.date_at, { d: date, t: time });
+    const near = Math.abs(diff) <= 1;
+    const date = near
+      ? this._rel.format(diff, "day")
+      : d.toLocaleDateString(this._lang, { day: "2-digit", month: "2-digit" });
+    if (allDay) return near ? date : fill(t.on_date, { d: date });
+    let time;
+    try {
+      time = d.toLocaleTimeString(this._lang, { hour: "numeric", minute: "2-digit", ...this._clockOpts() });
+    } catch (e) {
+      time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+    }
+    return fill(near ? t.day_at : t.date_at, { d: date, t: time });
   }
 
   /* -- hass / lifecycle ------------------------------------------------ */
@@ -966,19 +1200,29 @@ class NotificationCard extends HTMLElement {
     this._hass = hass;
     if (!this._dom) this._build();
     if (this.isConnected && !this._unsub) this._subscribe();
+    this.classList.toggle("dark", Boolean(hass.themes && hass.themes.darkMode));
     const lang = (hass.locale && hass.locale.language) || hass.language || "en";
-    const langChanged = lang !== this._lang;
-    if (langChanged) this._setLang(lang);
+    const langSwitched = lang !== this._lang;
+    /* Borrowed strings are read again whenever Home Assistant loads more of them. */
+    const langChanged =
+      langSwitched || (!this._curated && hass.localize && hass.localize !== this._localizeRef);
+    if (langChanged) this._setLang(lang, hass.localize);
+    const localeChanged = !old || hass.locale !== old.locale || hass.config !== old.config;
+    if (localeChanged) this._abs = null;
     const registryChanged = hass.entities !== this._entitiesRef;
     const viewer = this._viewerOf(hass);
     const viewerChanged = viewer !== this._viewer;
     this._viewer = viewer;
     if (!old || registryChanged || langChanged || viewerChanged) {
       this._entitiesRef = hass.entities;
-      if (!old) this._refreshRepairs();
+      if (!old || langSwitched) this._refreshRepairs();
       this._refreshUpdateIds();
       this._refreshLabelIds();
       this._refreshWatched();
+      this._recompute();
+      return;
+    }
+    if (localeChanged) {
       this._recompute();
       return;
     }
@@ -990,9 +1234,33 @@ class NotificationCard extends HTMLElement {
     }
   }
 
+  get hass() {
+    return this._hass;
+  }
+
+  /* preview is the current name, editMode the one older cores still set. */
+  set preview(v) {
+    this._setEditMode(v);
+  }
+
+  get preview() {
+    return this._editMode;
+  }
+
   set editMode(v) {
-    this._editMode = Boolean(v);
-    this.classList.toggle("no-anim", this._editMode);
+    this._setEditMode(v);
+  }
+
+  get editMode() {
+    return this._editMode;
+  }
+
+  _setEditMode(v) {
+    const on = Boolean(v);
+    if (on === this._editMode && this._painted) return;
+    this._editMode = on;
+    if (on) this.classList.add("no-anim");
+    else if (!this._settling) this.classList.remove("no-anim");
     this._recompute();
   }
 
@@ -1001,6 +1269,8 @@ class NotificationCard extends HTMLElement {
       clearTimeout(this._detachReset);
       this._detachReset = null;
     }
+    const root = this.getRootNode();
+    this.classList.toggle("docked", Boolean(root && root.host && root.host.localName === "hui-view-footer"));
     if (this._hass) this._subscribe();
     if (this._dom) {
       this._ro.observe(this._dom.msg);
@@ -1015,6 +1285,7 @@ class NotificationCard extends HTMLElement {
         this[key] = null;
       }
     }
+    clearTimeout(this._repairsTimer);
     if (this._ro) this._ro.disconnect();
     this._stopClock();
     /* Collapse only if the card stays detached; the dashboard editor
@@ -1028,6 +1299,11 @@ class NotificationCard extends HTMLElement {
     }, 150);
   }
 
+  _isAdmin() {
+    const u = this._hass && this._hass.user;
+    return !u || u.is_admin !== false;
+  }
+
   _subscribe() {
     const conn = this._hass && this._hass.connection;
     if (!conn) return;
@@ -1039,10 +1315,13 @@ class NotificationCard extends HTMLElement {
         this._unsub = null;
       });
     }
-    /* Repairs are admin only, so a refused subscription is normal. */
-    if (!this._unsubRepairs && conn.subscribeEvents) {
+    /* Repairs are admin only; asking anyway only writes refusals to the log. */
+    if (!this._unsubRepairs && conn.subscribeEvents && this._isAdmin()) {
       this._unsubRepairs = conn.subscribeEvents(
-        () => this._refreshRepairs(),
+        () => {
+          clearTimeout(this._repairsTimer);
+          this._repairsTimer = setTimeout(() => this._refreshRepairs(), 500);
+        },
         "repairs_issue_registry_updated"
       );
       this._unsubRepairs.catch(() => {
@@ -1082,17 +1361,25 @@ class NotificationCard extends HTMLElement {
 
   _refreshRepairs() {
     const h = this._hass;
-    if (!h || !h.callWS || !this._config || !this._config.repairs) {
+    if (!h || !h.callWS || !this._config || !this._config.repairs || !this._isAdmin()) {
       this._repairs = [];
       return;
     }
     h.callWS({ type: "repairs/list_issues" })
       .then((res) => {
-        this._repairs = ((res && res.issues) || []).filter((i) => !i.ignored);
+        this._repairs = ((res && res.issues) || []).filter((i) => i.active !== false && !i.ignored);
         this._recompute();
+        const domains = [...new Set(this._repairs.map((i) => i.domain))];
+        if (domains.length && typeof h.loadBackendTranslation === "function") {
+          return h.loadBackendTranslation("issues", domains).then((localize) => {
+            this._issueLocalize = localize;
+            this._recompute();
+          });
+        }
+        return undefined;
       })
       .catch(() => {
-        this._repairs = [];
+        this._repairs = this._repairs || [];
       });
   }
 
@@ -1134,25 +1421,40 @@ class NotificationCard extends HTMLElement {
     const c = this._config || {};
     const items = [];
     const allowed = (source) => this._editMode || visibleTo(this._audience[source], this._viewer);
+    const name = (st, override) => {
+      if (h && h.formatEntityName) {
+        try {
+          return h.formatEntityName(st, override) || st.entity_id;
+        } catch (e) {
+          /* fall through to the plain name */
+        }
+      }
+      return (typeof override === "string" && override) || st.attributes.friendly_name || st.entity_id;
+    };
     const ctx = {
       hass: h,
       host: this,
       t: this._t,
-      calWhen: (s) => this._calWhen(s),
+      issueLocalize: this._issueLocalize,
+      calWhen: (s, allDay) => this._calWhen(s, allDay),
+      name,
+      format: (st) => (h && h.formatEntityState ? h.formatEntityState(st) : String(st.state)),
     };
 
     if (allowed("system")) {
       for (const [id, n] of this._persistent) {
         const message = n.message || "";
         if (MUTED_NOTIFICATIONS.has(id) || message.includes("invalid authentication")) continue;
+        const link = firstLink(message);
         items.push({
           key: "s:" + id,
           kind: "system",
           source: "system",
-          title: n.title || this._t.notification,
-          message,
+          title: plainText(n.title) || this._t.notification,
+          message: plainText(message),
           ts: parseTs(n.created_at, Date.now()),
           seq: n.__seq || 0,
+          open: link ? linkAction(this, link) : null,
           dismiss: () =>
             h.callService("persistent_notification", "dismiss", {
               notification_id: id,
@@ -1237,8 +1539,10 @@ class NotificationCard extends HTMLElement {
       clear: q(".clear"),
       ebar: q(".ebar"),
       count: q(".count"),
+      bgs: [...this.shadowRoot.querySelectorAll(".backdrop img")],
       userCss,
     };
+    for (const img of this._dom.bgs) img.referrerPolicy = "no-referrer";
     this._dom.clear.textContent = this._t.clear;
     this._applyCustomStyles();
     for (const el of [this._dom.head, this._dom.ebar]) {
@@ -1249,6 +1553,12 @@ class NotificationCard extends HTMLElement {
         this._toggle();
       });
     }
+    this._dom.card.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape" || !this._expanded) return;
+      e.stopPropagation();
+      this._toggle();
+      this._dom.head.focus({ preventScroll: true });
+    });
     this._dom.clear.addEventListener("click", () => this._clearAll());
     this._ro = new ResizeObserver(() => {
       const t = this._lastMsg;
@@ -1263,17 +1573,23 @@ class NotificationCard extends HTMLElement {
    * while the dashboard editor is open. */
   _suppressAnim() {
     this.classList.add("no-anim");
+    this._settling = true;
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
+        this._settling = false;
         if (!this._editMode) this.classList.remove("no-anim");
       });
     });
   }
 
+  /* Keyboard focus follows the toggle, which hides itself as it opens or closes. */
   _toggle() {
     if (!this._items.length) return;
+    const d = this._dom;
+    const active = this.shadowRoot.activeElement;
+    const refocus = active === d.head || active === d.ebar;
     this._expanded = !this._expanded;
-    this._dom.head.setAttribute("aria-expanded", String(this._expanded));
+    d.head.setAttribute("aria-expanded", String(this._expanded));
     if (this._expanded) {
       this._refreshTimes();
       this._startClock();
@@ -1284,6 +1600,7 @@ class NotificationCard extends HTMLElement {
       if (t !== null) this._setMessage(t);
     }
     this._render();
+    if (refocus) (this._expanded ? d.ebar : d.head).focus({ preventScroll: true });
   }
 
   _startClock() {
@@ -1347,6 +1664,60 @@ class NotificationCard extends HTMLElement {
     }
   }
 
+  /* Hidden the way Home Assistant expects it: the hidden attribute plus
+   * card-visibility-changed, so sections, masonry and the view footer drop
+   * the card's slot instead of keeping an empty gap. The collapse plays first. */
+  _setShown(show) {
+    if (show) {
+      clearTimeout(this._hideTimer);
+      this._hideTimer = null;
+      this.classList.remove("gone");
+      if (this.hidden) {
+        this.hidden = false;
+        fire(this, "card-visibility-changed", { value: true });
+      }
+      return;
+    }
+    if (this.hidden || this._hideTimer) return;
+    const finish = () => {
+      this._hideTimer = null;
+      this.hidden = true;
+      fire(this, "card-visibility-changed", { value: false });
+    };
+    const animate = this._animOK();
+    this.classList.add("gone");
+    if (animate) this._hideTimer = setTimeout(finish, 450);
+    else finish();
+  }
+
+  /* Two layers so one picture fades into the next; a picture shows only once loaded. */
+  _setBackdrop(url) {
+    if (url === this._bgUrl) return;
+    this._bgUrl = url;
+    const layers = this._dom.bgs;
+    const shown = layers.find((l) => l.classList.contains("on")) || null;
+    if (!url) {
+      if (shown) shown.classList.remove("on");
+      this.classList.remove("has-bg");
+      return;
+    }
+    const next = shown === layers[0] ? layers[1] : layers[0];
+    const reveal = () => {
+      if (this._bgUrl !== url) return;
+      next.classList.add("on");
+      if (shown && shown !== next) shown.classList.remove("on");
+      this.classList.add("has-bg");
+    };
+    next.onload = reveal;
+    next.onerror = () => {
+      if (this._bgUrl !== url) return;
+      if (shown) shown.classList.remove("on");
+      this.classList.remove("has-bg");
+    };
+    if (next.getAttribute("src") === url && next.complete && next.naturalWidth) reveal();
+    else next.src = url;
+  }
+
   _render() {
     if (!this._dom || !this._config) return;
     const d = this._dom;
@@ -1354,13 +1725,14 @@ class NotificationCard extends HTMLElement {
     const empty = items.length === 0;
 
     if (empty && this._config.hide_when_empty && !this._editMode) {
-      this.classList.add("gone");
+      this._setShown(false);
+      this._setBackdrop(null);
       this._lastMsg = null;
       this._stopClock();
       this._painted = true;
       return;
     }
-    this.classList.remove("gone");
+    this._setShown(true);
 
     if (empty) {
       this._expanded = false;
@@ -1368,6 +1740,8 @@ class NotificationCard extends HTMLElement {
       d.head.setAttribute("aria-expanded", "false");
     }
     d.card.classList.toggle("open", this._expanded);
+    d.card.classList.toggle("has-items", !empty);
+    d.head.setAttribute("aria-disabled", String(empty));
 
     if (empty) {
       d.icon.setAttribute("icon", "mdi:bell-outline");
@@ -1388,11 +1762,10 @@ class NotificationCard extends HTMLElement {
     }
 
     setImage(d.tile, empty ? null : items[0].image);
+    this._setBackdrop(!empty && items[0].backdrop ? items[0].image : null);
     d.count.textContent = empty
       ? ""
-      : items.length === 1
-        ? "1 " + this._t.item
-        : items.length + " " + this._t.items;
+      : fill(items.length === 1 ? this._t.count_one : this._t.count_other, { n: items.length });
     this._renderList(empty ? [] : items);
     d.foot.hidden = empty || items.length < 2 || !items.some((it) => it.dismiss);
     this._painted = true;
@@ -1403,6 +1776,7 @@ class NotificationCard extends HTMLElement {
       this._painted &&
       !this._editMode &&
       this.isConnected &&
+      !this.classList.contains("no-anim") &&
       motionOK() &&
       typeof this.animate === "function"
     );
@@ -1438,8 +1812,9 @@ class NotificationCard extends HTMLElement {
         it.message,
         it.ts,
         Boolean(it.dismiss),
+        Boolean(it.open || it.entity) && !it.inert,
         (it.actions || []).map((a) => a.label + (a.disabled ? "!" : "")).join("|"),
-      ].join("\u241f");
+      ].join("␟");
       const hit = cache.get(it.key);
       let el;
       if (hit && hit.sig === sig) {
@@ -1458,6 +1833,7 @@ class NotificationCard extends HTMLElement {
     if (!animate) return;
     const EASE = NotificationCard._EASE;
     const scale = listEl.offsetWidth / listRect.width || 1;
+    const out = getComputedStyle(this).direction === "rtl" ? -24 : 24;
     for (const [key, oldRect] of before) {
       const entry = next.get(key);
       if (entry) {
@@ -1472,7 +1848,7 @@ class NotificationCard extends HTMLElement {
       } else {
         const ghost = cache.get(key).el;
         ghost.style.position = "absolute";
-        ghost.style.top = (oldRect.top - listRect.top) * scale + "px";
+        ghost.style.top = (oldRect.top - listRect.top) * scale + listEl.scrollTop + "px";
         ghost.style.left = (oldRect.left - listRect.left) * scale + "px";
         ghost.style.width = oldRect.width * scale + "px";
         ghost.style.pointerEvents = "none";
@@ -1480,7 +1856,7 @@ class NotificationCard extends HTMLElement {
         const anim = ghost.animate(
           [
             { opacity: 1, transform: "none" },
-            { opacity: 0, transform: "translateX(24px)" },
+            { opacity: 0, transform: "translateX(" + out + "px)" },
           ],
           { duration: 450, easing: EASE }
         );
@@ -1512,13 +1888,16 @@ class NotificationCard extends HTMLElement {
     title.textContent = it.title;
     const meta = document.createElement("div");
     meta.className = "meta";
-    const when = document.createElement("span");
+    const when = document.createElement("time");
     when.className = "when";
+    when.dateTime = new Date(it.ts).toISOString();
+    when.title = this._absTime(it.ts);
     when.textContent = this._relTime(it.ts);
     meta.append(when);
     if (it.dismiss) {
       const x = document.createElement("button");
       x.className = "x";
+      x.type = "button";
       x.setAttribute("aria-label", this._t.dismiss);
       x.setAttribute("title", this._t.dismiss);
       const xi = document.createElement("ha-icon");
@@ -1541,6 +1920,7 @@ class NotificationCard extends HTMLElement {
       for (const a of it.actions) {
         const btn = document.createElement("button");
         btn.className = "act";
+        btn.type = "button";
         btn.textContent = a.label;
         if (a.disabled) btn.disabled = true;
         else
@@ -1552,25 +1932,39 @@ class NotificationCard extends HTMLElement {
       }
       row.append(actions);
     }
-    /* Tap: clamped long text expands/collapses; otherwise entity rows open
-     * more-info. The icon tile always opens more-info for entity rows. */
+    const clamped = () =>
+      body.scrollHeight > body.clientHeight + 1 || title.scrollWidth > title.clientWidth + 1;
+    const selecting = () => {
+      const sel = (this.shadowRoot.getSelection && this.shadowRoot.getSelection()) || document.getSelection();
+      return Boolean(sel && !sel.isCollapsed && String(sel).trim());
+    };
+    const go = it.inert ? null : it.open || (it.entity ? () => fireMoreInfo(this, it.entity) : null);
+    /* The pointer shows a hand only where a tap does something. */
+    row.addEventListener("pointerenter", () => row.classList.toggle("expandable", clamped()));
+    /* Tap: clamped long text expands/collapses; otherwise the row opens its
+     * target. The icon tile always opens the target. */
     row.addEventListener("click", () => {
-      const clamped = body.scrollHeight > body.clientHeight + 1;
-      if (row.classList.contains("open") || clamped) {
+      if (selecting()) return;
+      if (row.classList.contains("open") || clamped()) {
         row.classList.toggle("open");
-      } else if (it.open) {
-        it.open();
-      } else if (it.entity) {
-        fireMoreInfo(this, it.entity);
+      } else if (go) {
+        go();
       }
     });
-    if (it.open || it.entity) {
+    if (go) {
       row.classList.add("link");
-      tile.style.cursor = "pointer";
+      tile.setAttribute("role", "button");
+      tile.tabIndex = 0;
+      tile.setAttribute("aria-label", it.title);
       tile.addEventListener("click", (e) => {
         e.stopPropagation();
-        if (it.open) it.open();
-        else fireMoreInfo(this, it.entity);
+        go();
+      });
+      tile.addEventListener("keydown", (e) => {
+        if (e.key !== "Enter" && e.key !== " ") return;
+        e.preventDefault();
+        e.stopPropagation();
+        go();
       });
     }
     return row;
@@ -1618,6 +2012,102 @@ class NotificationCard extends HTMLElement {
 
 /* ── editor ─────────────────────────────────────────────────────────── */
 
+/* Generic labels come from Home Assistant, in the user's language. */
+const HA_EDITOR = Object.freeze({
+  entities: "ui.panel.lovelace.editor.card.generic.entities",
+  name: "ui.panel.lovelace.editor.card.generic.name",
+  icon: "ui.panel.lovelace.editor.card.generic.icon",
+  tap_action: "ui.panel.lovelace.editor.card.generic.tap_action",
+});
+
+const EDITOR_STRINGS = Object.freeze({
+  en: {
+    entities: "Entities",
+    label: "Include entities by label",
+    updates: "Pending updates",
+    repairs: "Repairs",
+    hide_when_empty: "Hide when there is nothing to show",
+    options: "Entity options",
+    type: "Kind",
+    name: "Name",
+    icon: "Icon",
+    image: "Picture",
+    background: "Picture as card background",
+    tap_action: "Tap behavior",
+    audience: "Who sees what",
+    visible: "Visible to",
+    people: "People",
+    system: "System notifications",
+    everyone: "Everyone",
+    only: "Only these people",
+    except: "Everyone except these people",
+    nobody: "Nobody",
+    only_x: "Only {x}",
+    except_x: "Everyone except {x}",
+    type_auto: "Detect automatically",
+    type_calendar: "Calendar event",
+    type_update: "Update",
+    type_alarm: "Alarm panel",
+    type_alert: "Alert",
+    type_dwd: "DWD weather warnings",
+    type_recipe: "Recipe attribute",
+    type_picture: "Picture with a text state",
+    type_generic: "Plain entity",
+  },
+  de: {
+    entities: "Entitäten",
+    label: "Entitäten mit diesem Label einbeziehen",
+    updates: "Ausstehende Updates",
+    repairs: "Reparaturen",
+    hide_when_empty: "Ausblenden, wenn nichts anliegt",
+    options: "Optionen je Entität",
+    type: "Art",
+    name: "Name",
+    icon: "Symbol",
+    image: "Bild",
+    background: "Bild als Kartenhintergrund",
+    tap_action: "Verhalten beim Tippen",
+    audience: "Wer sieht was",
+    visible: "Sichtbar für",
+    people: "Personen",
+    system: "Systembenachrichtigungen",
+    everyone: "Alle",
+    only: "Nur diese Personen",
+    except: "Alle außer diesen Personen",
+    nobody: "Niemand",
+    only_x: "Nur {x}",
+    except_x: "Alle außer {x}",
+    type_auto: "Automatisch erkennen",
+    type_calendar: "Kalendertermin",
+    type_update: "Update",
+    type_alarm: "Alarmanlage",
+    type_alert: "Alarm (alert)",
+    type_dwd: "DWD-Unwetterwarnungen",
+    type_recipe: "Rezept-Attribut",
+    type_picture: "Bild mit Text-Zustand",
+    type_generic: "Einfache Entität",
+  },
+});
+
+const EDITOR_HELPERS = Object.freeze({
+  en: {
+    label: "Every entity with this label is added and detected automatically.",
+    visible: "Applies outside edit mode, like Home Assistant's own card visibility.",
+    people: "Matches the user account linked to each person in Settings → People.",
+    image: "An attribute such as recipe.image, or a URL. Empty: the entity's own picture.",
+    background: "Shown softly blurred behind the card while this entity is the notification on top.",
+  },
+  de: {
+    label: "Jede Entität mit diesem Label kommt dazu und wird automatisch erkannt.",
+    visible: "Gilt außerhalb des Bearbeitungsmodus, wie die Sichtbarkeit von Home Assistant selbst.",
+    people: "Verglichen wird das Benutzerkonto, das unter Einstellungen → Personen verknüpft ist.",
+    image: "Ein Attribut wie recipe.image oder eine URL. Leer: das eigene Bild der Entität.",
+    background: "Weich und unscharf hinter der Karte, solange diese Entität oben steht.",
+  },
+});
+
+const OPTION_KEYS = ["type", "name", "icon", "image", "background", "tap_action"];
+
 class NotificationCardEditor extends HTMLElement {
   setConfig(config) {
     checkAudience(config.audience);
@@ -1630,9 +2120,32 @@ class NotificationCardEditor extends HTMLElement {
     this._renderForm();
   }
 
+  _lang() {
+    const h = this._hass;
+    return String((h && ((h.locale && h.locale.language) || h.language)) || "en").split("-")[0];
+  }
+
+  _label(key) {
+    const h = this._hass;
+    const own = EDITOR_STRINGS[this._lang()] || {};
+    if (own[key]) return own[key];
+    const borrowed = HA_EDITOR[key] && h && h.localize ? h.localize(HA_EDITOR[key]) : "";
+    return borrowed || EDITOR_STRINGS.en[key] || key;
+  }
+
+  _helper(key) {
+    return (EDITOR_HELPERS[this._lang()] || EDITOR_HELPERS.en)[key];
+  }
+
   _name(id) {
     const st = this._hass && this._hass.states[id];
     return (st && st.attributes.friendly_name) || id;
+  }
+
+  _entries() {
+    return (this._config.entities || [])
+      .map((e) => (typeof e === "string" ? { entity: e } : e || {}))
+      .filter((e) => typeof e.entity === "string");
   }
 
   _sources() {
@@ -1643,53 +2156,100 @@ class NotificationCardEditor extends HTMLElement {
       c.label && reg
         ? Object.keys(reg).filter((id) => ((reg[id] && reg[id].labels) || []).includes(c.label))
         : [];
-    const sources = [{ key: "system", name: "System notifications", icon: ICONS.system }];
-    if (c.updates !== false) sources.push({ key: "updates", name: "Updates", icon: ICONS.update });
-    if (c.repairs !== false) sources.push({ key: "repairs", name: "Repairs", icon: ICONS.repair });
-    for (const entry of [...(c.entities || []), ...labelled]) {
-      const src = typeof entry === "string" ? { entity: entry } : entry || {};
-      if (!src.entity || sources.some((s) => s.key === src.entity)) continue;
-      const st = h && h.states[src.entity];
-      const type = src.type && src.type !== "auto" ? src.type : st ? detectType(src.entity, st) : "generic";
+    const sources = [{ key: "system", name: this._label("system"), icon: ICONS.system }];
+    if (c.updates !== false) sources.push({ key: "updates", name: this._label("updates"), icon: ICONS.update });
+    if (c.repairs !== false) sources.push({ key: "repairs", name: this._label("repairs"), icon: ICONS.repair });
+    for (const src of [...this._entries(), ...labelled.map((entity) => ({ entity }))]) {
+      if (sources.some((s) => s.key === src.entity)) continue;
       sources.push({
         key: src.entity,
-        name: src.name || this._name(src.entity),
-        icon: src.icon || ICONS[type === "dwd" ? "weather" : type],
+        name: typeof src.name === "string" && src.name ? src.name : this._name(src.entity),
+        icon: src.icon || typeIcon(this._typeOf(src)),
       });
     }
     return sources;
   }
 
+  _typeOf(src) {
+    if (src.type && src.type !== "auto") return src.type;
+    const st = this._hass && this._hass.states[src.entity];
+    return st ? detectType(src.entity, st) : "generic";
+  }
+
   _summary(rule) {
     const mode = ruleMode(rule);
-    if (mode === "everyone") return "Everyone";
+    if (mode === "everyone") return this._label("everyone");
     const names = rule[mode].map((id) => this._name(id)).join(", ");
-    if (mode === "only") return names ? "Only " + names : "Nobody";
-    return names ? "Everyone except " + names : "Everyone";
+    if (mode === "only") return names ? fill(this._label("only_x"), { x: names }) : this._label("nobody");
+    return names ? fill(this._label("except_x"), { x: names }) : this._label("everyone");
   }
 
   _schema(sources) {
     const audience = this._config.audience || {};
-    const options = [
-      { value: "everyone", label: "Everyone" },
-      { value: "only", label: "Only these people" },
-      { value: "except", label: "Everyone except these people" },
-    ];
+    const options = ["everyone", "only", "except"].map((value) => ({ value, label: this._label(value) }));
+    const entries = this._entries();
     return [
-      { name: "hide_when_empty", selector: { boolean: {} } },
-      { name: "updates", selector: { boolean: {} } },
-      { name: "repairs", selector: { boolean: {} } },
       { name: "entities", selector: { entity: { multiple: true } } },
       { name: "label", selector: { label: {} } },
       {
+        name: "",
+        type: "grid",
+        schema: [
+          { name: "updates", selector: { boolean: {} } },
+          { name: "repairs", selector: { boolean: {} } },
+        ],
+      },
+      { name: "hide_when_empty", selector: { boolean: {} } },
+      ...(entries.length
+        ? [
+            {
+              name: "options",
+              type: "expandable",
+              title: this._label("options"),
+              icon: "mdi:tune-variant",
+              schema: entries.map((e) => {
+                const icon = typeIcon(this._typeOf(e));
+                return {
+                  name: e.entity,
+                  type: "expandable",
+                  title: typeof e.name === "string" && e.name ? e.name : this._name(e.entity),
+                  icon: e.icon || icon,
+                  schema: [
+                    {
+                      name: "type",
+                      selector: {
+                        select: {
+                          mode: "dropdown",
+                          options: TYPES.map((value) => ({ value, label: this._label("type_" + value) })),
+                        },
+                      },
+                    },
+                    {
+                      name: "",
+                      type: "grid",
+                      schema: [
+                        { name: "name", selector: { text: {} } },
+                        { name: "icon", selector: { icon: { placeholder: icon } } },
+                      ],
+                    },
+                    { name: "image", selector: { text: {} } },
+                    { name: "background", selector: { boolean: {} } },
+                    { name: "tap_action", selector: { ui_action: { default_action: "more-info" } } },
+                  ],
+                };
+              }),
+            },
+          ]
+        : []),
+      {
         name: "audience",
         type: "expandable",
-        title: LABELS.audience,
+        title: this._label("audience"),
         icon: "mdi:account-eye-outline",
         schema: sources.map((s) => ({
           name: s.key,
           type: "expandable",
-          title: s.name + " \u00b7 " + this._summary(audience[s.key]),
+          title: s.name + " · " + this._summary(audience[s.key]),
           icon: s.icon,
           schema: [
             { name: "visible", selector: { select: { mode: "list", options } } },
@@ -1702,61 +2262,22 @@ class NotificationCardEditor extends HTMLElement {
     ];
   }
 
-  _renderForm() {
-    if (!this._config) return;
-    if (!this._form) {
-      this._form = document.createElement("ha-form");
-      this._form.computeLabel = (s) => LABELS[s.name] || s.name;
-      this._form.computeHelper = (s) => HELPERS[s.name];
-      this._form.addEventListener("value-changed", (e) => {
-        e.stopPropagation();
-        const value = { ...(e.detail.value || {}) };
-        if (Array.isArray(value.entities)) {
-          const prev = (this._config.entities || []).filter(
-            (p) => typeof p === "object" && p
-          );
-          value.entities = value.entities.map((id) => {
-            const meta = prev.find((p) => p.entity === id);
-            return meta || id;
-          });
-        }
-        if (value.audience) {
-          const audience = { ...(this._config.audience || {}) };
-          for (const [key, v] of Object.entries(value.audience)) {
-            if (v && (v.visible === "only" || v.visible === "except")) {
-              audience[key] = { [v.visible]: v.people || [] };
-            } else {
-              delete audience[key];
-            }
-          }
-          value.audience = Object.keys(audience).length ? audience : null;
-        }
-        const config = { type: "custom:" + CARD };
-        for (const [k, v] of Object.entries({ ...this._config, ...value })) {
-          if (k === "type") continue;
-          if (v === "" || v == null) continue;
-          if (Array.isArray(v) && v.length === 0) continue;
-          config[k] = v;
-        }
-        this._config = config;
-        this._renderForm();
-        this.dispatchEvent(
-          new CustomEvent("config-changed", {
-            detail: { config },
-            bubbles: true,
-            composed: true,
-          })
-        );
-      });
-      this.appendChild(this._form);
-    }
-    const sources = this._sources();
+  _data(sources) {
     const audience = this._config.audience || {};
-    this._form.hass = this._hass;
-    this._form.schema = this._schema(sources);
     const data = { ...DEFAULTS, ...this._config };
-    data.entities = (data.entities || []).map((e) =>
-      typeof e === "string" ? e : e.entity
+    data.entities = this._entries().map((e) => e.entity);
+    data.options = Object.fromEntries(
+      this._entries().map((e) => [
+        e.entity,
+        {
+          type: e.type || "auto",
+          name: typeof e.name === "string" ? e.name : undefined,
+          icon: e.icon,
+          image: e.image,
+          background: Boolean(e.background),
+          tap_action: e.tap_action,
+        },
+      ])
     );
     data.audience = Object.fromEntries(
       sources.map((s) => {
@@ -1764,19 +2285,118 @@ class NotificationCardEditor extends HTMLElement {
         return [s.key, { visible: mode, people: mode === "everyone" ? [] : audience[s.key][mode] }];
       })
     );
-    this._form.data = data;
+    return data;
+  }
+
+  /* Picked entities keep what only YAML can set (actions, name parts). */
+  _mergeEntities(ids, options) {
+    const prev = new Map(this._entries().map((e) => [e.entity, e]));
+    return (ids || []).map((id) => {
+      const base = prev.get(id) || { entity: id };
+      const opt = (options && options[id]) || {};
+      const merged = { ...base, entity: id };
+      for (const key of OPTION_KEYS) {
+        if (!(key in opt)) continue;
+        const v = opt[key];
+        if (key === "name" && isEmpty(v) && base.name != null && typeof base.name !== "string") continue;
+        if (isEmpty(v) || (key === "type" && v === "auto")) delete merged[key];
+        else merged[key] = v;
+      }
+      const ordered = {};
+      for (const key of [...ENTITY_KEY_ORDER, ...Object.keys(merged)]) {
+        if (key in merged && !(key in ordered)) ordered[key] = merged[key];
+      }
+      return Object.keys(ordered).length === 1 ? id : ordered;
+    });
+  }
+
+  _onChange(e) {
+    e.stopPropagation();
+    const value = { ...(e.detail.value || {}) };
+    if (Array.isArray(value.entities)) {
+      value.entities = this._mergeEntities(value.entities, value.options);
+    }
+    delete value.options;
+    if (value.audience) {
+      const audience = { ...(this._config.audience || {}) };
+      for (const [key, v] of Object.entries(value.audience)) {
+        if (v && (v.visible === "only" || v.visible === "except")) {
+          audience[key] = { [v.visible]: v.people || [] };
+        } else {
+          delete audience[key];
+        }
+      }
+      value.audience = Object.keys(audience).length ? audience : null;
+    }
+    /* Only what differs from the defaults is written, in a fixed order. */
+    const merged = { ...this._config, ...value };
+    const config = { type: "custom:" + CARD };
+    for (const k of [...KEY_ORDER, ...Object.keys(merged)]) {
+      if (k === "type" || k in config || !(k in merged)) continue;
+      const v = merged[k];
+      if (v === "" || v == null) continue;
+      if (Array.isArray(v) && v.length === 0) continue;
+      if (k in DEFAULTS && v === DEFAULTS[k]) continue;
+      config[k] = v;
+    }
+    this._config = config;
+    this._renderForm();
+    this.dispatchEvent(
+      new CustomEvent("config-changed", {
+        detail: { config },
+        bubbles: true,
+        composed: true,
+      })
+    );
+  }
+
+  /* Schema and data are handed to ha-form only when they change, not on
+   * every state update, so fields keep their focus and nothing flickers. */
+  _renderForm() {
+    if (!this._config) return;
+    if (!this._form) {
+      this._form = document.createElement("ha-form");
+      this._form.addEventListener("value-changed", (e) => this._onChange(e));
+      this.appendChild(this._form);
+    }
+    const lang = this._lang();
+    if (lang !== this._formLang || (this._hass && this._hass.localize !== this._formLocalize)) {
+      this._formLang = lang;
+      this._formLocalize = this._hass && this._hass.localize;
+      this._form.computeLabel = (s) => this._label(s.name);
+      this._form.computeHelper = (s) => this._helper(s.name);
+      this._schemaKey = null;
+    }
+    const sources = this._sources();
+    this._form.hass = this._hass;
+    const schema = this._schema(sources);
+    const schemaKey = JSON.stringify(schema);
+    if (schemaKey !== this._schemaKey) {
+      this._schemaKey = schemaKey;
+      this._form.schema = schema;
+    }
+    const data = this._data(sources);
+    const dataKey = JSON.stringify(data);
+    if (dataKey !== this._dataKey) {
+      this._dataKey = dataKey;
+      this._form.data = data;
+    }
   }
 }
 
 /* ── registration ───────────────────────────────────────────────────── */
 
-customElements.define(CARD, NotificationCard);
-customElements.define(EDITOR, NotificationCardEditor);
+/* Loading the file twice (HACS plus a manual resource) must not throw. */
+if (!customElements.get(CARD)) customElements.define(CARD, NotificationCard);
+if (!customElements.get(EDITOR)) customElements.define(EDITOR, NotificationCardEditor);
 window.customCards = window.customCards || [];
-window.customCards.push({
-  type: CARD,
-  name: "Notification Card",
-  description:
-    "System notifications, repairs, updates, warnings and any entity you add.",
-  preview: true,
-});
+if (!window.customCards.some((c) => c.type === CARD)) {
+  window.customCards.push({
+    type: CARD,
+    name: "Notification Card",
+    description:
+      "System notifications, repairs, updates, warnings and any entity you add.",
+    preview: true,
+    documentationURL: REPO,
+  });
+}
