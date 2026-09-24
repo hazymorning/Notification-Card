@@ -1,5 +1,6 @@
 {
   "name": "notification-card",
+  "version": "0.1.0",
   "private": true,
   "description": "Notification Card for Home Assistant",
   "scripts": {

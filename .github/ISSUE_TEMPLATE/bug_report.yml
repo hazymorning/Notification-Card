@@ -74,7 +74,7 @@ body:
     id: card-version
     attributes:
       label: Card version
-      description: Shown in HACS next to *Notification Card*.
+      description: Shown in HACS next to *Notification Card*, and in the browser console as *Notification Card v...*.
       placeholder: e.g. v0.1.0
     validations:
       required: true

@@ -5,6 +5,7 @@
 const CARD = "notification-card";
 const EDITOR = CARD + "-editor";
 const REPO = "https://github.com/hazymorning/Notification-Card";
+const VERSION = "0.1.0";
 
 /* ── configuration ──────────────────────────────────────────────────── */
 
@@ -2386,8 +2387,12 @@ class NotificationCardEditor extends HTMLElement {
 
 /* ── registration ───────────────────────────────────────────────────── */
 
-/* Loading the file twice (HACS plus a manual resource) must not throw. */
-if (!customElements.get(CARD)) customElements.define(CARD, NotificationCard);
+/* Loading the file twice (HACS plus a manual resource) must not throw. The
+ * version line is what a bug report asks for. */
+if (!customElements.get(CARD)) {
+  customElements.define(CARD, NotificationCard);
+  console.info("%c Notification Card %c v" + VERSION + " ", "font-weight:bold", "opacity:0.7");
+}
 if (!customElements.get(EDITOR)) customElements.define(EDITOR, NotificationCardEditor);
 window.customCards = window.customCards || [];
 if (!window.customCards.some((c) => c.type === CARD)) {
