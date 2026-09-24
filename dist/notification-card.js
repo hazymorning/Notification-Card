@@ -5,7 +5,7 @@
 const CARD = "notification-card";
 const EDITOR = CARD + "-editor";
 const REPO = "https://github.com/hazymorning/Notification-Card";
-const VERSION = "0.1.0";
+const VERSION = "0.1.1";
 
 /* ── configuration ──────────────────────────────────────────────────── */
 
