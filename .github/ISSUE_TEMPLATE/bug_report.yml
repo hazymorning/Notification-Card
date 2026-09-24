@@ -1,0 +1,131 @@
+name: Bug report
+description: The card does something wrong, breaks, or does not do what the readme says.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for taking the time to report a problem.
+
+        This form is only for **bugs**: something in the card is broken or behaves differently than the readme
+        describes. Questions, help with a setup, ideas and feature requests are just as welcome, they simply live in
+        [Discussions](https://github.com/hazymorning/Notification-Card/discussions). There they reach more people,
+        and the answer stays easy to find for the next person who wonders the same.
+
+        Not sure whether it is a bug? Start a discussion. If it turns out to be one, it becomes an issue from there,
+        nothing gets lost.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you start
+      options:
+        - label: I am on the latest release of the card.
+          required: true
+        - label: I reloaded the page with a cleared cache after the last update (on the phone app, *Settings > Companion app > Debugging > Reset frontend cache*).
+          required: true
+        - label: I searched the open and closed issues and did not find this one.
+          required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happens
+      description: A short description of the bug. Screenshots or a screen recording help a lot, you can drop them in here.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Add the card with the config below
+        2. Create a persistent notification
+        3. Open the card
+        4. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Card configuration
+      description: The YAML of the card, from the code editor of the card dialog. Remove anything private.
+      render: yaml
+    validations:
+      required: true
+
+  - type: textarea
+    id: entity
+    attributes:
+      label: Entity state and attributes
+      description: If the bug is about one entity, its state and attributes from *Developer tools > States*.
+      render: yaml
+
+  - type: input
+    id: card-version
+    attributes:
+      label: Card version
+      description: Shown in HACS next to *Notification Card*, and in the browser console as *Notification Card v...*.
+      placeholder: e.g. v0.1.0
+    validations:
+      required: true
+
+  - type: input
+    id: ha-version
+    attributes:
+      label: Home Assistant version
+      description: '*Settings > About*, the Core and Frontend versions.'
+      placeholder: e.g. Core 2026.9.2, Frontend 20260904.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: view
+    attributes:
+      label: Dashboard view
+      options:
+        - Sections
+        - Sections, in the view footer
+        - Masonry
+        - Panel or sidebar
+        - Inside a stack or another card
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: client
+    attributes:
+      label: Where you see it
+      multiple: true
+      options:
+        - Chrome or Edge
+        - Firefox
+        - Safari
+        - Companion app, Android
+        - Companion app, iOS or macOS
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: console
+    attributes:
+      label: Browser console
+      description: Errors from the browser console (F12 on the desktop), if there are any. Leave it empty otherwise.
+      render: text
+
+  - type: markdown
+    attributes:
+      value: |
+        Thanks again. Issues with a config and clear steps usually get fixed first, because they can be reproduced
+        right away.
