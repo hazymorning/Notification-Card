@@ -5,7 +5,7 @@
 const CARD = "notification-card";
 const EDITOR = CARD + "-editor";
 const REPO = "https://github.com/hazymorning/Notification-Card";
-const VERSION = "0.1.0";
+const VERSION = "0.1.1";
 
 /* ── configuration ──────────────────────────────────────────────────── */
 
@@ -559,6 +559,7 @@ const STYLES = `
     --nc-bg-auto: 0.22;
     display: grid;
     grid-template-rows: 1fr;
+    height: 100%;
     opacity: 1;
     -webkit-tap-highlight-color: transparent;
     transition:
@@ -589,6 +590,7 @@ const STYLES = `
   ha-card {
     display: flex;
     flex-direction: column;
+    height: 100%;
     min-height: 0;
     max-height: var(--nc-max-height, none);
     overflow: hidden;
@@ -602,6 +604,9 @@ const STYLES = `
   /* The sticky view footer of a sections dashboard caps a card at a quarter
    * of the screen; the list scrolls inside that instead of running off it. */
   :host(.docked) ha-card { max-height: var(--nc-max-height, 25dvh); }
+  /* With a fixed height from the layout tab the card fills it: the header
+   * centers in it, the open list scrolls inside it. */
+  ha-card:not(.open) .hwrap { flex: 1 1 auto; }
   ha-card.has-items:not(.open):active { transform: scale(0.98); transition-duration: 120ms; }
 
   .backdrop {
@@ -633,7 +638,7 @@ const STYLES = `
     align-content: center;
     column-gap: var(--nc-gap);
     min-height: var(--nc-head);
-    padding: var(--ha-space-1, 4px) var(--nc-pad);
+    padding: var(--nc-pad);
     outline: none;
   }
   ha-card.has-items .head, .ebar { cursor: pointer; }
@@ -749,7 +754,7 @@ const STYLES = `
     gap: var(--nc-pad);
     padding: 0 var(--nc-pad);
   }
-  :host(.docked) .list {
+  :host(.docked) .list, :host(.bounded) .list {
     overflow-x: hidden;
     overflow-y: auto;
     overscroll-behavior: contain;
@@ -1093,6 +1098,8 @@ class NotificationCard extends HTMLElement {
       throw new Error(CARD + ": css must be a string");
     }
     this._config = { ...DEFAULTS, ...config };
+    const rows = config.grid_options && config.grid_options.rows;
+    this.classList.toggle("bounded", typeof rows === "number");
     this._sources = sources;
     this._audience = audience;
     this._people = [...new Set(Object.values(audience).flatMap((rule) => rule[ruleMode(rule)]))];

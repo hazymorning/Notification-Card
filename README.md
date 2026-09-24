@@ -155,8 +155,9 @@ are configuring.
 <details>
 <summary><b>Layout</b>: sections, footer, languages</summary>
 
-Collapsed, the card is exactly one row of a sections view high, so it lines up
-with the tile cards next to it. When it hides itself, the section closes the
+Collapsed, the card is at least one row of a sections view high. Turn off
+*automatic height* in the layout tab and it fills the height you give it; the
+open list then scrolls inside. When it hides itself, the section closes the
 gap. In the sticky footer of a sections view it stays within the space the
 footer allows, and the list scrolls.
 
