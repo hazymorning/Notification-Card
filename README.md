@@ -2,7 +2,7 @@
 
 # Notification Card
 
-A clean, minimal card for notifications, alerts, and any updates that matter to you.
+A clean card for notifications, alerts, and updates.
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5?style=flat-square)](https://hacs.xyz)
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-Dashboard%20card-41BDF5?style=flat-square&logo=home-assistant&logoColor=white)](https://www.home-assistant.io)
